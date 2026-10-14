@@ -1073,8 +1073,8 @@ communitiesRouter.get('/threads/:rootMessageId', requireAuth, async (req, res, n
     });
 
     res.status(200).json({
-      rootMessage: formatMessageDTO(rootMessage),
-      replies: replies.map(formatMessageDTO),
+      rootMessage: formatMessageDTO(rootMessage, userId),
+      replies: replies.map((m) => formatMessageDTO(m, userId)),
     });
   } catch (err) {
     next(err);

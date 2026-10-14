@@ -11,6 +11,10 @@ import {
   WsCallInitiatePayloadSchema,
   WsCallResponsePayloadSchema,
   WsCallSignalPayloadSchema,
+  WsMessageReactPayloadSchema,
+  WsMessageEditPayloadSchema,
+  WsMessageDeletePayloadSchema,
+  WsMessagePinStarPayloadSchema,
   type WsSendMessageAck,
   type WsSyncResumeAck,
   type MessageDTO,
@@ -46,6 +50,7 @@ interface ActiveCallSession {
 }
 
 const MAX_GROUP_MESH_PARTICIPANTS = 4;
+const EDIT_WINDOW_MS = 15 * 60 * 1000; // 15-minute edit window (§5)
 
 const onlineUsers = new Map<string, Set<string>>();
 const activeCalls = new Map<string, ActiveCallSession>();
@@ -99,24 +104,6 @@ export async function notifyConversationCreated(
   }
 }
 
-export function closeSocketServer(): Promise<void> {
-  return new Promise((resolve) => {
-    if (ioInstance) {
-      ioInstance.close(() => {
-        ioInstance = null;
-        onlineUsers.clear();
-        activeCalls.clear();
-        resolve();
-      });
-    } else {
-      resolve();
-    }
-  });
-}
-
-/**
- * Finalizes a CallLog in Prisma and appends a system Call Log message in the conversation stream (§10).
- */
 async function finalizeCallAndInsertChatLog(
   call: ActiveCallSession,
   finalStatus: CallStatus
@@ -246,7 +233,7 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
 
     socket.join(`user:${userId}`);
 
-    // Join conversation rooms and emit online presence in background
+    // Join conversation rooms and emit presence in background without blocking socket event attachment
     void (async () => {
       try {
         const memberships = await prisma.membership.findMany({
@@ -261,19 +248,15 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
           await prisma.user
             .update({ where: { id: userId }, data: { lastSeenAt: new Date() } })
             .catch(() => undefined);
-          io.emit('presence:update', {
-            userId,
-            isOnline: true,
-            lastSeenAt: new Date().toISOString(),
-          });
+          io.emit('presence:update', { userId, isOnline: true, lastSeenAt: new Date().toISOString() });
         }
       } catch {
-        // Ignore background initialization errors
+        // Ignore transient background connection setup errors
       }
     })();
 
     // ========================================================================
-    // 1. Messaging Events (Phase 1–4)
+    // 1. Core & Rich Messaging Events (Phases 1–9)
     // ========================================================================
     socket.on('message:send', async (rawPayload: unknown, ack?: (res: WsSendMessageAck) => void) => {
       try {
@@ -307,6 +290,8 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
           type,
           replyToId,
           threadRootId,
+          attachmentId,
+          forwardedFromName,
         } = parsed.data;
 
         const convWithMembers = await prisma.conversation.findUnique({
@@ -361,6 +346,10 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
             sender: {
               select: { id: true, username: true, displayName: true, avatarUrl: true },
             },
+            attachment: true,
+            reactions: {
+              include: { user: { select: { username: true } } },
+            },
             replyTo: {
               include: { sender: { select: { displayName: true } } },
             },
@@ -384,7 +373,7 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
           }
           ack?.({
             ok: true,
-            message: formatMessageDTO(existingMessage),
+            message: formatMessageDTO(existingMessage, userId),
             deduplicated: true,
           });
           return;
@@ -440,12 +429,18 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
               type,
               replyToId: replyToId ?? null,
               threadRootId: threadRootId ?? null,
+              attachmentId: attachmentId ?? null,
+              forwardedFromName: forwardedFromName ?? null,
               seq: nextSeq,
               status: 'sent',
             },
             include: {
               sender: {
                 select: { id: true, username: true, displayName: true, avatarUrl: true },
+              },
+              attachment: true,
+              reactions: {
+                include: { user: { select: { username: true } } },
               },
               replyTo: {
                 include: { sender: { select: { displayName: true } } },
@@ -469,7 +464,7 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
           return msg;
         });
 
-        const dto = formatMessageDTO(createdMessage);
+        const dto = formatMessageDTO(createdMessage, userId);
 
         socket.join(`conv:${conversationId}`);
         io.to(`conv:${conversationId}`).emit('message:new', dto);
@@ -494,6 +489,269 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
         });
       }
     });
+
+    // Emoji Reactions Toggle (`message:react`)
+    socket.on(
+      'message:react',
+      async (rawPayload: unknown, ack?: (res: { ok: boolean; reactions?: MessageDTO['reactions'] }) => void) => {
+        try {
+          const parsed = WsMessageReactPayloadSchema.safeParse(rawPayload);
+          if (!parsed.success) {
+            ack?.({ ok: false });
+            return;
+          }
+
+          const { conversationId, messageId, emoji } = parsed.data;
+          const membership = await prisma.membership.findUnique({
+            where: { conversationId_userId: { conversationId, userId } },
+          });
+          if (!membership) {
+            ack?.({ ok: false });
+            return;
+          }
+
+          const msg = await prisma.message.findUnique({ where: { id: messageId } });
+          if (!msg || msg.conversationId !== conversationId) {
+            ack?.({ ok: false });
+            return;
+          }
+
+          const existing = await prisma.reaction.findUnique({
+            where: {
+              messageId_userId_emoji: { messageId, userId, emoji },
+            },
+          });
+
+          if (existing) {
+            await prisma.reaction.delete({ where: { id: existing.id } });
+          } else {
+            await prisma.reaction.create({
+              data: { messageId, userId, emoji },
+            });
+          }
+
+          const allReactions = await prisma.reaction.findMany({
+            where: { messageId },
+            include: { user: { select: { username: true } } },
+          });
+
+          const reactionDtos = allReactions.map((r) => ({
+            emoji: r.emoji,
+            userId: r.userId,
+            username: r.user.username,
+          }));
+
+          io.to(`conv:${conversationId}`).emit('message:updated', {
+            conversationId,
+            messageId,
+            reactions: reactionDtos,
+          });
+
+          ack?.({ ok: true, reactions: reactionDtos });
+        } catch {
+          ack?.({ ok: false });
+        }
+      }
+    );
+
+    // Edit Message within 15-Minute Window (`message:edit`)
+    socket.on(
+      'message:edit',
+      async (rawPayload: unknown, ack?: (res: { ok: boolean; error?: string; message?: MessageDTO }) => void) => {
+        try {
+          const parsed = WsMessageEditPayloadSchema.safeParse(rawPayload);
+          if (!parsed.success) {
+            ack?.({ ok: false, error: 'Invalid edit payload' });
+            return;
+          }
+
+          const { conversationId, messageId, newBody, newCiphertext, newNonce } = parsed.data;
+          const msg = await prisma.message.findUnique({ where: { id: messageId } });
+          if (!msg || msg.conversationId !== conversationId) {
+            ack?.({ ok: false, error: 'Message not found' });
+            return;
+          }
+
+          if (msg.senderId !== userId) {
+            ack?.({ ok: false, error: 'You can only edit your own messages.' });
+            return;
+          }
+
+          if (Date.now() - msg.createdAt.getTime() > EDIT_WINDOW_MS) {
+            ack?.({ ok: false, error: 'Edit window (15 minutes) has expired.' });
+            return;
+          }
+
+          const updated = await prisma.message.update({
+            where: { id: messageId },
+            data: {
+              body: newCiphertext && newNonce ? '[E2EE]' : newBody,
+              ...(newCiphertext !== undefined ? { ciphertext: newCiphertext } : {}),
+              ...(newNonce !== undefined ? { nonce: newNonce } : {}),
+              editedAt: new Date(),
+            },
+            include: {
+              sender: {
+                select: { id: true, username: true, displayName: true, avatarUrl: true },
+              },
+              attachment: true,
+              reactions: {
+                include: { user: { select: { username: true } } },
+              },
+              replyTo: {
+                include: { sender: { select: { displayName: true } } },
+              },
+            },
+          });
+
+          const dto = formatMessageDTO(updated, userId);
+          io.to(`conv:${conversationId}`).emit('message:updated', {
+            conversationId,
+            messageId,
+            body: dto.body,
+            editedAt: dto.editedAt,
+          });
+
+          ack?.({ ok: true, message: dto });
+        } catch {
+          ack?.({ ok: false, error: 'Failed to edit message' });
+        }
+      }
+    );
+
+    // Delete Message (`for_me` or `for_everyone`)
+    socket.on(
+      'message:delete',
+      async (rawPayload: unknown, ack?: (res: { ok: boolean; error?: string }) => void) => {
+        try {
+          const parsed = WsMessageDeletePayloadSchema.safeParse(rawPayload);
+          if (!parsed.success) {
+            ack?.({ ok: false, error: 'Invalid delete payload' });
+            return;
+          }
+
+          const { conversationId, messageId, mode } = parsed.data;
+          const msg = await prisma.message.findUnique({ where: { id: messageId } });
+          if (!msg || msg.conversationId !== conversationId) {
+            ack?.({ ok: false, error: 'Message not found' });
+            return;
+          }
+
+          if (mode === 'for_me') {
+            let deletedFor: string[] = [];
+            try {
+              deletedFor = JSON.parse(msg.deletedForJson || '[]');
+            } catch {
+              deletedFor = [];
+            }
+            if (!deletedFor.includes(userId)) {
+              deletedFor.push(userId);
+              await prisma.message.update({
+                where: { id: messageId },
+                data: { deletedForJson: JSON.stringify(deletedFor) },
+              });
+            }
+            ack?.({ ok: true });
+            return;
+          }
+
+          // mode === 'for_everyone'
+          if (msg.senderId !== userId) {
+            ack?.({ ok: false, error: 'Only the sender can delete a message for everyone.' });
+            return;
+          }
+
+          const deletedAt = new Date();
+          await prisma.message.update({
+            where: { id: messageId },
+            data: {
+              body: 'This message was deleted',
+              ciphertext: null,
+              nonce: null,
+              deletedAt,
+            },
+          });
+
+          io.to(`conv:${conversationId}`).emit('message:updated', {
+            conversationId,
+            messageId,
+            body: 'This message was deleted',
+            deletedAt: deletedAt.toISOString(),
+          });
+
+          ack?.({ ok: true });
+        } catch {
+          ack?.({ ok: false, error: 'Failed to delete message' });
+        }
+      }
+    );
+
+    // Pin / Unpin / Star / Unstar Message (`message:pin-star`)
+    socket.on(
+      'message:pin-star',
+      async (rawPayload: unknown, ack?: (res: { ok: boolean; isPinned?: boolean; isStarred?: boolean }) => void) => {
+        try {
+          const parsed = WsMessagePinStarPayloadSchema.safeParse(rawPayload);
+          if (!parsed.success) {
+            ack?.({ ok: false });
+            return;
+          }
+
+          const { conversationId, messageId, action } = parsed.data;
+          const membership = await prisma.membership.findUnique({
+            where: { conversationId_userId: { conversationId, userId } },
+          });
+          if (!membership) {
+            ack?.({ ok: false });
+            return;
+          }
+
+          const msg = await prisma.message.findUnique({ where: { id: messageId } });
+          if (!msg || msg.conversationId !== conversationId) {
+            ack?.({ ok: false });
+            return;
+          }
+
+          if (action === 'pin' || action === 'unpin') {
+            const isPinned = action === 'pin';
+            await prisma.message.update({
+              where: { id: messageId },
+              data: { isPinned },
+            });
+            io.to(`conv:${conversationId}`).emit('message:updated', {
+              conversationId,
+              messageId,
+              isPinned,
+            });
+            ack?.({ ok: true, isPinned });
+            return;
+          }
+
+          // star / unstar (per-user)
+          let starredBy: string[] = [];
+          try {
+            starredBy = JSON.parse(msg.starredByJson || '[]');
+          } catch {
+            starredBy = [];
+          }
+          const isStarred = action === 'star';
+          if (isStarred && !starredBy.includes(userId)) {
+            starredBy.push(userId);
+          } else if (!isStarred) {
+            starredBy = starredBy.filter((id) => id !== userId);
+          }
+
+          await prisma.message.update({
+            where: { id: messageId },
+            data: { starredByJson: JSON.stringify(starredBy) },
+          });
+
+          ack?.({ ok: true, isStarred });
+        } catch {
+          ack?.({ ok: false });
+        }
+      }
+    );
 
     socket.on('typing:set', async (rawPayload: unknown) => {
       try {
@@ -656,6 +914,10 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
               sender: {
                 select: { id: true, username: true, displayName: true, avatarUrl: true },
               },
+              attachment: true,
+              reactions: {
+                include: { user: { select: { username: true } } },
+              },
               replyTo: {
                 include: { sender: { select: { displayName: true } } },
               },
@@ -666,7 +928,7 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
           });
 
           if (missed.length > 0) {
-            missedMessages[convId] = missed.map(formatMessageDTO);
+            missedMessages[convId] = missed.map((m) => formatMessageDTO(m, userId));
           }
         }
 
@@ -677,10 +939,8 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
     });
 
     // ========================================================================
-    // 2. WebRTC Voice & Video Call Signaling State Machine (Phase 5 - §10)
+    // 2. WebRTC Voice & Video Call Signaling (Phase 5)
     // ========================================================================
-
-    // A. Initiate Call (Ring 1:1 or Group Mesh up to 4 participants)
     socket.on(
       'call:initiate',
       async (
@@ -730,7 +990,6 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
               return;
             }
 
-            // If 1:1 peer is already in an active call -> immediately mark as `busy`
             if (isUserInActiveCall(peerId)) {
               await prisma.callLog.create({
                 data: {
@@ -806,14 +1065,12 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
           }
 
           ack?.({ ok: true, status: 'ringing' });
-        } catch (err) {
-          console.error('call:initiate error:', err);
+        } catch {
           ack?.({ ok: false, error: 'Failed to initiate call' });
         }
       }
     );
 
-    // B. Accept Call
     socket.on(
       'call:accept',
       async (rawPayload: unknown, ack?: (res: { ok: boolean; error?: string; participants?: string[] }) => void) => {
@@ -872,7 +1129,6 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
       }
     );
 
-    // C. Decline Incoming Call
     socket.on(
       'call:decline',
       async (rawPayload: unknown, ack?: (res: { ok: boolean }) => void) => {
@@ -911,7 +1167,6 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
       }
     );
 
-    // D. Timeout / No Answer (`missed`)
     socket.on(
       'call:timeout',
       async (rawPayload: unknown, ack?: (res: { ok: boolean }) => void) => {
@@ -947,7 +1202,6 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
       }
     );
 
-    // E. Hangup / Leave Call (With Automatic Group E2EE Media Key Rotation when a participant leaves)
     socket.on(
       'call:hangup',
       async (rawPayload: unknown, ack?: (res: { ok: boolean }) => void) => {
@@ -967,7 +1221,6 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
 
           call.participants.delete(userId);
 
-          // If 1:1 call or last remaining participant leaves -> end call completely
           if (!call.isGroup || call.participants.size <= 1) {
             const finalStatus: CallStatus =
               call.answeredAt !== null ? 'completed' : 'missed';
@@ -982,7 +1235,6 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
             }
             await finalizeCallAndInsertChatLog(call, finalStatus);
           } else {
-            // Group Mesh Call: Rotate E2EE media key generation when a participant leaves (§10)
             call.keyGeneration += 1;
             const rotatedKeyMaterial = crypto.randomBytes(32).toString('base64');
 
@@ -1005,7 +1257,6 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
       }
     );
 
-    // F. Peer-to-Peer WebRTC Offer / Answer / ICE Candidate / Media State Relay
     socket.on('call:signal', async (rawPayload: unknown) => {
       try {
         const parsed = WsCallSignalPayloadSchema.safeParse(rawPayload);
@@ -1064,4 +1315,15 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
   });
 
   return io;
+}
+
+export async function closeSocketServer(): Promise<void> {
+  if (ioInstance) {
+    await new Promise<void>((resolve) => {
+      ioInstance!.close(() => resolve());
+    });
+    ioInstance = null;
+  }
+  onlineUsers.clear();
+  activeCalls.clear();
 }

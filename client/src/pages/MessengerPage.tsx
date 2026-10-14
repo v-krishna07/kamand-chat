@@ -9,6 +9,7 @@ import { CommunityWorkspace } from '../components/CommunityWorkspace.js';
 import { CallOverlay } from '../components/CallOverlay.js';
 import { CampusHub } from '../components/CampusHub.js';
 import { CampusMapView } from '../components/CampusMapView.js';
+import { AdminDashboard } from '../components/AdminDashboard.js';
 
 interface MessengerPageProps {
   currentUser: UserSummary;
@@ -52,7 +53,8 @@ export const MessengerPage: React.FC<MessengerPageProps> = ({ currentUser, onLog
           (activeConversation && activeSection === 'chats') ||
           activeSection === 'communities' ||
           activeSection === 'campus' ||
-          activeSection === 'map'
+          activeSection === 'map' ||
+          activeSection === 'admin'
             ? 'hidden md:flex'
             : 'flex'
         } h-full w-full md:w-auto flex-shrink-0`}
@@ -70,6 +72,7 @@ export const MessengerPage: React.FC<MessengerPageProps> = ({ currentUser, onLog
           activeSection === 'communities' ||
           activeSection === 'campus' ||
           activeSection === 'map' ||
+          activeSection === 'admin' ||
           activeConversation
             ? 'flex'
             : 'hidden md:flex'
@@ -84,6 +87,8 @@ export const MessengerPage: React.FC<MessengerPageProps> = ({ currentUser, onLog
             currentUser={currentUser}
             onOpenChatWithEta={() => setActiveSection('chats')}
           />
+        ) : activeSection === 'admin' ? (
+          <AdminDashboard currentUser={currentUser} />
         ) : activeConversation ? (
           <ChatView
             conversation={activeConversation}

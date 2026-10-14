@@ -29,6 +29,7 @@ export interface RawUserRecord {
   roomCode: string | null;
   isRoomPrivate?: boolean;
   role: string;
+  isSuspended?: boolean;
   lastSeenAt: Date;
   createdAt: Date;
 }
@@ -59,6 +60,7 @@ export function toUserSummary(
     roomCode: allowRoom ? user.roomCode : null,
     isRoomPrivate,
     role: (user.role as UserSummary['role']) || 'member',
+    isSuspended: Boolean(user.isSuspended),
     isOnline: options.isOnline,
     lastSeenAt: user.lastSeenAt.toISOString(),
     createdAt: user.createdAt.toISOString(),

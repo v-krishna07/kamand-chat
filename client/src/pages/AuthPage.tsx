@@ -349,8 +349,8 @@ export const AuthPage: React.FC = () => {
               Instant Demo Accounts:
             </span>
           </div>
-          <div className="grid grid-cols-3 gap-2">
-            {(['aravind', 'priya', 'rohan'] as const).map((u) => (
+          <div className="grid grid-cols-4 gap-2">
+            {(['aravind', 'priya', 'rohan', 'admin'] as const).map((u) => (
               <button
                 key={u}
                 type="button"

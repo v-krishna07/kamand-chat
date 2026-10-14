@@ -14,6 +14,7 @@ import type {
   WsCallResponsePayload,
   WsCallSignalPayload,
   CallStatus,
+  ReactionDTO,
 } from '@kamand/shared';
 
 export interface IncomingCallEvent {
@@ -109,6 +110,16 @@ class SocketManager {
     }) => void;
     onCallBusy?: (ev: { callId: string; conversationId: string; busyUserId: string }) => void;
     onCallSignal?: (ev: CallSignalEvent) => void;
+    onMessageUpdated?: (ev: {
+      conversationId: string;
+      messageId: string;
+      body?: string;
+      reactions?: ReactionDTO[];
+      isPinned?: boolean;
+      editedAt?: string | null;
+      deletedAt?: string | null;
+    }) => void;
+    onSessionForceLogout?: (ev: { reason: string }) => void;
     getCursors: () => Record<string, number>;
     onSyncResume: (missed: Record<string, MessageDTO[]>) => void;
     onFlushPending: () => void;
@@ -210,6 +221,15 @@ class SocketManager {
 
     socket.on('call:signal', (ev: CallSignalEvent) => {
       handlers.onCallSignal?.(ev);
+    });
+
+    socket.on('message:updated', (ev) => {
+      handlers.onMessageUpdated?.(ev);
+    });
+
+    socket.on('session:force-logout', (ev: { reason: string }) => {
+      handlers.onSessionForceLogout?.(ev);
+      window.location.reload();
     });
 
     socket.on('disconnect', () => {
@@ -320,6 +340,70 @@ class SocketManager {
 
   public sendCallSignal(payload: WsCallSignalPayload): void {
     this.socket?.emit('call:signal', payload);
+  }
+
+  public reactToMessage(
+    conversationId: string,
+    messageId: string,
+    emoji: string
+  ): Promise<{ ok: boolean; reactions?: ReactionDTO[] }> {
+    return new Promise((resolve) => {
+      if (!this.socket?.connected) {
+        resolve({ ok: false });
+        return;
+      }
+      this.socket.emit('message:react', { conversationId, messageId, emoji }, (res: { ok: boolean; reactions?: ReactionDTO[] }) =>
+        resolve(res ?? { ok: false })
+      );
+    });
+  }
+
+  public editMessage(
+    conversationId: string,
+    messageId: string,
+    newBody: string
+  ): Promise<{ ok: boolean; error?: string; message?: MessageDTO }> {
+    return new Promise((resolve) => {
+      if (!this.socket?.connected) {
+        resolve({ ok: false, error: 'Socket is offline' });
+        return;
+      }
+      this.socket.emit('message:edit', { conversationId, messageId, newBody }, (res: { ok: boolean; error?: string; message?: MessageDTO }) =>
+        resolve(res ?? { ok: false, error: 'No response' })
+      );
+    });
+  }
+
+  public deleteMessage(
+    conversationId: string,
+    messageId: string,
+    mode: 'for_me' | 'for_everyone'
+  ): Promise<{ ok: boolean; error?: string }> {
+    return new Promise((resolve) => {
+      if (!this.socket?.connected) {
+        resolve({ ok: false, error: 'Socket is offline' });
+        return;
+      }
+      this.socket.emit('message:delete', { conversationId, messageId, mode }, (res: { ok: boolean; error?: string }) =>
+        resolve(res ?? { ok: false, error: 'No response' })
+      );
+    });
+  }
+
+  public pinStarMessage(
+    conversationId: string,
+    messageId: string,
+    action: 'pin' | 'unpin' | 'star' | 'unstar'
+  ): Promise<{ ok: boolean; isPinned?: boolean; isStarred?: boolean }> {
+    return new Promise((resolve) => {
+      if (!this.socket?.connected) {
+        resolve({ ok: false });
+        return;
+      }
+      this.socket.emit('message:pin-star', { conversationId, messageId, action }, (res: { ok: boolean; isPinned?: boolean; isStarred?: boolean }) =>
+        resolve(res ?? { ok: false })
+      );
+    });
   }
 
   public disconnect(): void {

@@ -61,6 +61,7 @@ export const UserSummarySchema = z.object({
   roomCode: z.string().nullable(),
   isRoomPrivate: z.boolean().optional().default(true),
   role: z.enum(['member', 'moderator', 'admin', 'super_admin']),
+  isSuspended: z.boolean().optional().default(false),
   isOnline: z.boolean().optional(),
   lastSeenAt: z.string().nullable().optional(),
   createdAt: z.string(),
@@ -274,7 +275,7 @@ export const StatusDTO_Schema = z.object({
 export type StatusDTO = z.infer<typeof StatusDTO_Schema>;
 
 // ============================================================================
-// 5. Conversation & Message Schemas (Phase 1–4)
+// 5. Conversation, Media Attachment, Reaction & Message Schemas (Phase 1–9)
 // ============================================================================
 
 export const CreateDirectConversationSchema = z.object({
@@ -282,6 +283,34 @@ export const CreateDirectConversationSchema = z.object({
 });
 
 export const MessageTypeSchema = z.enum(['text', 'image', 'voice', 'file', 'system']);
+
+export const ReactionDTO_Schema = z.object({
+  emoji: z.string().min(1).max(16),
+  userId: z.string().uuid(),
+  username: z.string(),
+});
+export type ReactionDTO = z.infer<typeof ReactionDTO_Schema>;
+
+export const AttachmentDTO_Schema = z.object({
+  id: z.string().uuid(),
+  fileName: z.string(),
+  mimeType: z.string(),
+  sizeBytes: z.number().int().nonnegative(),
+  url: z.string(),
+  isEncrypted: z.boolean().default(false),
+  encryptionIv: z.string().nullable().optional(),
+  durationSec: z.number().nonnegative().nullable().optional(),
+  waveform: z.array(z.number()).optional(),
+});
+export type AttachmentDTO = z.infer<typeof AttachmentDTO_Schema>;
+
+export const LinkPreviewDTO_Schema = z.object({
+  url: z.string().url(),
+  title: z.string(),
+  description: z.string(),
+  siteName: z.string().nullable(),
+});
+export type LinkPreviewDTO = z.infer<typeof LinkPreviewDTO_Schema>;
 
 export const MessageDTO_Schema = z.object({
   id: z.string().uuid(),
@@ -309,6 +338,12 @@ export const MessageDTO_Schema = z.object({
     .optional(),
   threadRootId: z.string().uuid().nullable().optional(),
   threadReplyCount: z.number().int().nonnegative().optional().default(0),
+  isPinned: z.boolean().optional().default(false),
+  isStarred: z.boolean().optional().default(false),
+  forwardedFromName: z.string().nullable().optional(),
+  reactions: z.array(ReactionDTO_Schema).optional().default([]),
+  attachment: AttachmentDTO_Schema.nullable().optional(),
+  linkPreview: LinkPreviewDTO_Schema.nullable().optional(),
   seq: z.number().int().positive(),
   status: z.enum(['sending', 'sent', 'delivered', 'read', 'failed']).default('sent'),
   editedAt: z.string().nullable(),
@@ -329,6 +364,7 @@ export const ConversationSummarySchema = z.object({
   participants: z.array(UserSummarySchema),
   lastMessage: MessageDTO_Schema.nullable(),
   isBlocked: z.boolean().optional().default(false),
+  isMuted: z.boolean().optional().default(false),
 });
 
 export type ConversationSummary = z.infer<typeof ConversationSummarySchema>;
@@ -688,7 +724,75 @@ export const AiTriageReportInputSchema = z.object({
 export type AiTriageReportInput = z.infer<typeof AiTriageReportInputSchema>;
 
 // ============================================================================
-// 9. WebSocket Event Payloads & Acknowledgements
+// 9. Phase 9: Media Upload, Link Previews, Moderation Reports & Admin Schemas
+// ============================================================================
+
+export const UploadAttachmentInputSchema = z.object({
+  fileName: z.string().trim().min(1).max(180),
+  mimeType: z.string().trim().min(3).max(100),
+  base64Data: z.string().min(4).max(8_000_000), // Up to ~6MB raw binary
+  isEncrypted: z.boolean().optional().default(false),
+  encryptionIv: z.string().max(128).nullable().optional(),
+  durationSec: z.number().nonnegative().nullable().optional(),
+  waveform: z.array(z.number().min(0).max(1)).max(64).optional(),
+});
+export type UploadAttachmentInput = z.infer<typeof UploadAttachmentInputSchema>;
+
+export const FetchLinkPreviewInputSchema = z.object({
+  url: z.string().trim().url('Must be a valid http/https URL').max(1024),
+});
+export type FetchLinkPreviewInput = z.infer<typeof FetchLinkPreviewInputSchema>;
+
+export const CreateReportInputSchema = z.object({
+  targetUserId: z.string().uuid().nullable().optional(),
+  conversationId: z.string().uuid().nullable().optional(),
+  messageId: z.string().uuid().nullable().optional(),
+  reason: z.string().trim().min(3, 'Please describe the reason for this report').max(500),
+  voluntarilyAttachedMessages: z
+    .array(
+      z.object({
+        messageId: z.string().uuid().optional(),
+        senderName: z.string().max(80),
+        body: z.string().max(4000),
+        createdAt: z.string().optional(),
+      })
+    )
+    .max(20)
+    .default([]),
+});
+export type CreateReportInput = z.infer<typeof CreateReportInputSchema>;
+
+export const ResolveReportInputSchema = z.object({
+  status: z.enum(['resolved', 'dismissed']),
+  resolutionNote: z.string().trim().max(400).optional().default(''),
+  suspendTargetUser: z.boolean().optional().default(false),
+});
+export type ResolveReportInput = z.infer<typeof ResolveReportInputSchema>;
+
+export const ReportDTO_Schema = z.object({
+  id: z.string().uuid(),
+  reporterId: z.string().uuid(),
+  reporterUsername: z.string(),
+  targetUserId: z.string().uuid().nullable(),
+  targetUsername: z.string().nullable(),
+  conversationId: z.string().uuid().nullable(),
+  messageId: z.string().uuid().nullable(),
+  reason: z.string(),
+  status: z.enum(['open', 'resolved', 'dismissed']),
+  resolutionNote: z.string(),
+  voluntarilyAttachedMessages: z.array(
+    z.object({
+      senderName: z.string(),
+      body: z.string(),
+      createdAt: z.string().optional(),
+    })
+  ),
+  createdAt: z.string(),
+});
+export type ReportDTO = z.infer<typeof ReportDTO_Schema>;
+
+// ============================================================================
+// 10. WebSocket Event Payloads & Acknowledgements
 // ============================================================================
 
 export const WsSendMessagePayloadSchema = z
@@ -702,13 +806,48 @@ export const WsSendMessagePayloadSchema = z
     type: MessageTypeSchema.default('text'),
     replyToId: z.string().uuid().nullable().optional(),
     threadRootId: z.string().uuid().nullable().optional(),
+    attachmentId: z.string().uuid().nullable().optional(),
+    forwardedFromName: z.string().trim().max(80).nullable().optional(),
   })
   .refine(
-    (data) => data.body.length > 0 || (Boolean(data.ciphertext) && Boolean(data.nonce)),
-    'Message must contain either a body or E2EE ciphertext + nonce'
+    (data) =>
+      data.body.length > 0 ||
+      Boolean(data.attachmentId) ||
+      (Boolean(data.ciphertext) && Boolean(data.nonce)),
+    'Message must contain a body, an attachment, or E2EE ciphertext + nonce'
   );
 
 export type WsSendMessagePayload = z.infer<typeof WsSendMessagePayloadSchema>;
+
+export const WsMessageReactPayloadSchema = z.object({
+  conversationId: z.string().uuid(),
+  messageId: z.string().uuid(),
+  emoji: z.string().trim().min(1).max(16),
+});
+export type WsMessageReactPayload = z.infer<typeof WsMessageReactPayloadSchema>;
+
+export const WsMessageEditPayloadSchema = z.object({
+  conversationId: z.string().uuid(),
+  messageId: z.string().uuid(),
+  newBody: z.string().trim().min(1).max(4000),
+  newCiphertext: z.string().max(16000).nullable().optional(),
+  newNonce: z.string().max(256).nullable().optional(),
+});
+export type WsMessageEditPayload = z.infer<typeof WsMessageEditPayloadSchema>;
+
+export const WsMessageDeletePayloadSchema = z.object({
+  conversationId: z.string().uuid(),
+  messageId: z.string().uuid(),
+  mode: z.enum(['for_me', 'for_everyone']),
+});
+export type WsMessageDeletePayload = z.infer<typeof WsMessageDeletePayloadSchema>;
+
+export const WsMessagePinStarPayloadSchema = z.object({
+  conversationId: z.string().uuid(),
+  messageId: z.string().uuid(),
+  action: z.enum(['pin', 'unpin', 'star', 'unstar']),
+});
+export type WsMessagePinStarPayload = z.infer<typeof WsMessagePinStarPayloadSchema>;
 
 export const WsSendMessageAckSchema = z.discriminatedUnion('ok', [
   z.object({

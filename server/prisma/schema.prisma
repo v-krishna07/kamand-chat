@@ -51,6 +51,10 @@ model User {
   campusDataCreated       CampusDatum[]
   courseEnrollments       CourseEnrollment[]
   timetableSlots          TimetableSlot[]
+  attachmentsUploaded     Attachment[]
+  reactions               Reaction[]
+  reportsSubmitted        Report[]           @relation("ReporterUser")
+  reportsAgainst          Report[]           @relation("ReportedTargetUser")
 
   @@index([username])
   @@index([email])
@@ -197,6 +201,7 @@ model Membership {
   conversationId   String
   userId           String
   role             String       @default("member")
+  isMuted          Boolean      @default(false)
   lastReadSeq      Int          @default(0)
   lastDeliveredSeq Int          @default(0)
   joinedAt         DateTime     @default(now())
@@ -207,6 +212,60 @@ model Membership {
   @@unique([conversationId, userId])
   @@index([userId])
   @@index([conversationId])
+}
+
+model Attachment {
+  id           String    @id @default(uuid())
+  uploaderId   String
+  fileName     String
+  storageKey   String    @unique
+  mimeType     String
+  sizeBytes    Int
+  isEncrypted  Boolean   @default(false)
+  encryptionIv String?
+  durationSec  Float?
+  waveformJson String    @default("[]")
+  createdAt    DateTime  @default(now())
+
+  uploader     User      @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+  messages     Message[]
+
+  @@index([uploaderId])
+}
+
+model Reaction {
+  id        String   @id @default(uuid())
+  messageId String
+  userId    String
+  emoji     String
+  createdAt DateTime @default(now())
+
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+}
+
+model Report {
+  id             String   @id @default(uuid())
+  reporterId     String
+  targetUserId   String?
+  conversationId String?
+  messageId      String?
+  reason         String
+  attachedJson   String   @default("[]") // Voluntarily attached decrypted message snapshots
+  status         String   @default("open") // open | resolved | dismissed
+  resolutionNote String   @default("")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  reporter       User     @relation("ReporterUser", fields: [reporterId], references: [id], onDelete: Cascade)
+  targetUser     User?    @relation("ReportedTargetUser", fields: [targetUserId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([reporterId])
+  @@index([targetUserId])
 }
 
 model Message {
@@ -220,6 +279,11 @@ model Message {
   type                String        @default("text")
   replyToId           String?
   threadRootId        String?
+  attachmentId        String?
+  forwardedFromName   String?
+  isPinned            Boolean       @default(false)
+  starredByJson       String        @default("[]")
+  deletedForJson      String        @default("[]")
   seq                 Int
   status              String        @default("sent")
   editedAt            DateTime?
@@ -228,10 +292,12 @@ model Message {
 
   conversation        Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sender              User          @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  attachment          Attachment?   @relation(fields: [attachmentId], references: [id], onDelete: SetNull)
   replyTo             Message?      @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
   replies             Message[]     @relation("MessageReplies")
   threadRoot          Message?      @relation("MessageThread", fields: [threadRootId], references: [id], onDelete: Cascade)
   threadReplies       Message[]     @relation("MessageThread")
+  reactions           Reaction[]
   readReceipts        ReadReceipt[]
 
   @@unique([conversationId, seq])

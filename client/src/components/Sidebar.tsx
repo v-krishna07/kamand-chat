@@ -13,12 +13,14 @@ import {
   Sparkles,
   GraduationCap,
   MapPin,
+  Shield,
 } from 'lucide-react';
 import type { UserSummary } from '@kamand/shared';
 import { useChatStore } from '../store/useChatStore.js';
 import { useSocialStore } from '../store/useSocialStore.js';
 import { useSecurityStore } from '../store/useSecurityStore.js';
 import { apiFetch } from '../lib/api.js';
+import { updateDocumentUnreadBadge } from '../lib/notifications.js';
 import { FluidSheet } from './FluidSheet.js';
 import { ContactsPanel } from './ContactsPanel.js';
 import { StatusTray } from './StatusTray.js';
@@ -33,8 +35,8 @@ export type PrimarySection =
   | 'status'
   | 'ai'
   | 'campus'
-  | 'map';
-
+  | 'map'
+  | 'admin';
 
 interface SidebarProps {
   currentUser: UserSummary;
@@ -68,6 +70,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<UserSummary[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+
+  const totalUnread = conversations.reduce((sum, c) => sum + (c.isMuted ? 0 : c.unreadCount), 0);
+
+  useEffect(() => {
+    updateDocumentUnreadBadge(totalUnread);
+  }, [totalUnread]);
 
   useEffect(() => {
     void loadContacts();
@@ -104,6 +112,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
     (s) => s.author.id !== currentUser.id && !s.hasViewed
   ).length;
 
+  const isStaff =
+    currentUser.role === 'moderator' ||
+    currentUser.role === 'admin' ||
+    currentUser.role === 'super_admin';
+
   const filteredConversations = conversations.filter((conv) => {
     if (!filterQuery.trim()) return true;
     const q = filterQuery.toLowerCase();
@@ -117,7 +130,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <aside className="flex flex-col h-full w-full md:w-80 lg:w-96 border-r border-white/10 bg-slate-950 select-none">
-      {/* Top Header + Specific Navigation Tabs (§16) */}
+      {/* Top Header + Specific Navigation Tabs (§15 & §16) */}
       <div className="px-4 pt-4 pb-3 glass-chrome border-b border-white/10 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -136,7 +149,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
 
-        {/* Specific Navigation Bar: Chats | Groups | Campus | Map | Contacts | Status | Ask AI */}
+        {/* Specific Navigation Bar: Chats | Groups | Campus | Map | Contacts | Status | Ask AI | Admin */}
         <div
           className="grid grid-cols-4 gap-1 p-1 rounded-2xl bg-slate-900/90 border border-white/10"
           role="tablist"
@@ -243,7 +256,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             role="tab"
             aria-selected={activeSection === 'ai'}
             onClick={() => onChangeSection('ai')}
-            className={`fluid-press col-span-2 py-1.5 rounded-xl text-[11px] font-semibold flex items-center justify-center gap-1 ${
+            className={`fluid-press ${isStaff ? 'col-span-1' : 'col-span-2'} py-1.5 rounded-xl text-[11px] font-semibold flex items-center justify-center gap-1 ${
               activeSection === 'ai'
                 ? 'bg-sky-500 text-white shadow-xs'
                 : 'text-slate-400 hover:text-white'
@@ -252,8 +265,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <Sparkles className="w-3 h-3" />
             <span>Ask AI</span>
           </button>
-        </div>
 
+          {isStaff && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeSection === 'admin'}
+              onClick={() => onChangeSection('admin')}
+              className={`fluid-press py-1.5 rounded-xl text-[11px] font-semibold flex items-center justify-center gap-1 ${
+                activeSection === 'admin'
+                  ? 'bg-emerald-500 text-white shadow-xs'
+                  : 'text-emerald-300 hover:text-white'
+              }`}
+            >
+              <Shield className="w-3 h-3" />
+              <span>Admin</span>
+            </button>
+          )}
+        </div>
 
         {activeSection === 'chats' && (
           <div className="relative">

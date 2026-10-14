@@ -32,6 +32,10 @@ interface ChatState {
   setDraft: (conversationId: string, text: string) => void;
   setReplyTarget: (conversationId: string, target: MessageDTO | null) => void;
   notifyTyping: (conversationId: string, isTyping: boolean) => void;
+  reactToMessage: (conversationId: string, messageId: string, emoji: string) => Promise<void>;
+  editMessage: (conversationId: string, messageId: string, newBody: string) => Promise<boolean>;
+  deleteMessage: (conversationId: string, messageId: string, mode: 'for_me' | 'for_everyone') => Promise<void>;
+  pinStarMessage: (conversationId: string, messageId: string, action: 'pin' | 'unpin' | 'star' | 'unstar') => Promise<void>;
   reset: () => void;
 }
 
@@ -266,6 +270,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
         void useCallStore.getState().handleCallSignal(ev);
       },
 
+      onMessageUpdated: (ev) => {
+        set((prev) => {
+          const list = prev.messagesByConv[ev.conversationId];
+          if (!list) return prev;
+          return {
+            messagesByConv: {
+              ...prev.messagesByConv,
+              [ev.conversationId]: list.map((m) => {
+                if (m.id !== ev.messageId) return m;
+                return {
+                  ...m,
+                  ...(ev.body !== undefined ? { body: ev.body } : {}),
+                  ...(ev.reactions ? { reactions: ev.reactions } : {}),
+                  ...(ev.isPinned !== undefined ? { isPinned: ev.isPinned } : {}),
+                  ...(ev.editedAt !== undefined ? { editedAt: ev.editedAt } : {}),
+                  ...(ev.deletedAt !== undefined ? { deletedAt: ev.deletedAt } : {}),
+                };
+              }),
+            },
+          };
+        });
+      },
+
       onSyncResume: (missedByConv) => {
         set((prev) => {
           const nextMessagesByConv = { ...prev.messagesByConv };
@@ -449,6 +476,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
       seq: maxSeq + 100_000,
       threadRootId: null,
       threadReplyCount: 0,
+      isPinned: false,
+      isStarred: false,
+      forwardedFromName: null,
+      reactions: [],
+      attachment: null,
+      linkPreview: null,
       status: 'sending',
       editedAt: null,
       deletedAt: null,
@@ -546,6 +579,96 @@ export const useChatStore = create<ChatState>((set, get) => ({
           ),
         },
       }));
+    }
+  },
+
+  reactToMessage: async (conversationId, messageId, emoji) => {
+    const res = await socketManager.reactToMessage(conversationId, messageId, emoji);
+    if (res.ok && res.reactions) {
+      set((prev) => {
+        const list = prev.messagesByConv[conversationId];
+        if (!list) return prev;
+        return {
+          messagesByConv: {
+            ...prev.messagesByConv,
+            [conversationId]: list.map((m) =>
+              m.id === messageId ? { ...m, reactions: res.reactions ?? [] } : m
+            ),
+          },
+        };
+      });
+    }
+  },
+
+  editMessage: async (conversationId, messageId, newBody) => {
+    const res = await socketManager.editMessage(conversationId, messageId, newBody);
+    if (res.ok && res.message) {
+      set((prev) => {
+        const list = prev.messagesByConv[conversationId];
+        if (!list) return prev;
+        return {
+          messagesByConv: {
+            ...prev.messagesByConv,
+            [conversationId]: list.map((m) => (m.id === messageId ? res.message! : m)),
+          },
+        };
+      });
+      return true;
+    }
+    return false;
+  },
+
+  deleteMessage: async (conversationId, messageId, mode) => {
+    const res = await socketManager.deleteMessage(conversationId, messageId, mode);
+    if (res.ok) {
+      if (mode === 'for_me') {
+        set((prev) => ({
+          messagesByConv: {
+            ...prev.messagesByConv,
+            [conversationId]: (prev.messagesByConv[conversationId] ?? []).filter(
+              (m) => m.id !== messageId
+            ),
+          },
+        }));
+      } else {
+        set((prev) => {
+          const list = prev.messagesByConv[conversationId];
+          if (!list) return prev;
+          return {
+            messagesByConv: {
+              ...prev.messagesByConv,
+              [conversationId]: list.map((m) =>
+                m.id === messageId
+                  ? { ...m, body: 'This message was deleted', deletedAt: new Date().toISOString() }
+                  : m
+              ),
+            },
+          };
+        });
+      }
+    }
+  },
+
+  pinStarMessage: async (conversationId, messageId, action) => {
+    const res = await socketManager.pinStarMessage(conversationId, messageId, action);
+    if (res.ok) {
+      set((prev) => {
+        const list = prev.messagesByConv[conversationId];
+        if (!list) return prev;
+        return {
+          messagesByConv: {
+            ...prev.messagesByConv,
+            [conversationId]: list.map((m) => {
+              if (m.id !== messageId) return m;
+              return {
+                ...m,
+                ...(res.isPinned !== undefined ? { isPinned: res.isPinned } : {}),
+                ...(res.isStarred !== undefined ? { isStarred: res.isStarred } : {}),
+              };
+            }),
+          },
+        };
+      });
     }
   },
 }));

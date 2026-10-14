@@ -13,37 +13,80 @@ import { areUsersBlocked, getAcceptedContactIds } from './contacts.js';
 
 export const conversationsRouter = Router();
 
-export function formatMessageDTO(msg: {
-  id: string;
-  conversationId: string;
-  senderId: string;
-  body: string;
-  ciphertext: string | null;
-  nonce: string | null;
-  type: string;
-  replyToId: string | null;
-  threadRootId?: string | null;
-  senderKeyGeneration?: number | null;
-  seq: number;
-  status: string;
-  editedAt: Date | null;
-  deletedAt: Date | null;
-  createdAt: Date;
-  sender: {
+function parseStringArray(json: string | null | undefined): string[] {
+  if (!json) return [];
+  try {
+    const arr = JSON.parse(json);
+    return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseNumberArray(json: string | null | undefined): number[] {
+  if (!json) return [];
+  try {
+    const arr = JSON.parse(json);
+    return Array.isArray(arr) ? arr.filter((x): x is number => typeof x === 'number') : [];
+  } catch {
+    return [];
+  }
+}
+
+export function formatMessageDTO(
+  msg: {
     id: string;
-    username: string;
-    displayName: string;
-    avatarUrl: string | null;
-  };
-  replyTo?: {
-    id: string;
+    conversationId: string;
+    senderId: string;
     body: string;
-    sender: { displayName: string };
-  } | null;
-  _count?: {
-    threadReplies?: number;
-  };
-}): MessageDTO {
+    ciphertext: string | null;
+    nonce: string | null;
+    senderKeyGeneration?: number | null;
+    type: string;
+    replyToId: string | null;
+    threadRootId?: string | null;
+    forwardedFromName?: string | null;
+    isPinned?: boolean;
+    starredByJson?: string;
+    seq: number;
+    status: string;
+    editedAt: Date | null;
+    deletedAt: Date | null;
+    createdAt: Date;
+    sender: {
+      id: string;
+      username: string;
+      displayName: string;
+      avatarUrl: string | null;
+    };
+    replyTo?: {
+      id: string;
+      body: string;
+      sender: { displayName: string };
+    } | null;
+    attachment?: {
+      id: string;
+      fileName: string;
+      mimeType: string;
+      sizeBytes: number;
+      isEncrypted: boolean;
+      encryptionIv: string | null;
+      durationSec: number | null;
+      waveformJson: string;
+    } | null;
+    reactions?: Array<{
+      emoji: string;
+      userId: string;
+      user: { username: string };
+    }>;
+    _count?: {
+      threadReplies?: number;
+    };
+  },
+  viewerUserId?: string
+): MessageDTO {
+  const starredBy = parseStringArray(msg.starredByJson);
+
   return {
     id: msg.id,
     conversationId: msg.conversationId,
@@ -55,8 +98,8 @@ export function formatMessageDTO(msg: {
       avatarUrl: msg.sender.avatarUrl,
     },
     body: msg.deletedAt ? 'This message was deleted' : msg.body,
-    ciphertext: msg.ciphertext,
-    nonce: msg.nonce,
+    ciphertext: msg.deletedAt ? null : msg.ciphertext,
+    nonce: msg.deletedAt ? null : msg.nonce,
     senderKeyGeneration: msg.senderKeyGeneration ?? null,
     type: (msg.type as MessageDTO['type']) || 'text',
     replyToId: msg.replyToId,
@@ -69,6 +112,29 @@ export function formatMessageDTO(msg: {
       : null,
     threadRootId: msg.threadRootId ?? null,
     threadReplyCount: msg._count?.threadReplies ?? 0,
+    isPinned: Boolean(msg.isPinned),
+    isStarred: viewerUserId ? starredBy.includes(viewerUserId) : false,
+    forwardedFromName: msg.forwardedFromName ?? null,
+    reactions: (msg.reactions ?? []).map((r) => ({
+      emoji: r.emoji,
+      userId: r.userId,
+      username: r.user.username,
+    })),
+    attachment:
+      msg.attachment && !msg.deletedAt
+        ? {
+            id: msg.attachment.id,
+            fileName: msg.attachment.fileName,
+            mimeType: msg.attachment.mimeType,
+            sizeBytes: msg.attachment.sizeBytes,
+            url: `/api/media/${msg.attachment.id}`,
+            isEncrypted: msg.attachment.isEncrypted,
+            encryptionIv: msg.attachment.encryptionIv,
+            durationSec: msg.attachment.durationSec,
+            waveform: parseNumberArray(msg.attachment.waveformJson),
+          }
+        : null,
+    linkPreview: null,
     seq: msg.seq,
     status: (msg.status as MessageDTO['status']) || 'sent',
     editedAt: msg.editedAt ? msg.editedAt.toISOString() : null,
@@ -95,6 +161,10 @@ export async function buildConversationSummary(
           sender: {
             select: { id: true, username: true, displayName: true, avatarUrl: true },
           },
+          attachment: true,
+          reactions: {
+            include: { user: { select: { username: true } } },
+          },
           replyTo: {
             include: {
               sender: { select: { displayName: true } },
@@ -108,7 +178,6 @@ export async function buildConversationSummary(
     },
   });
 
-  // Exclude community channel conversations from the 1:1 sidebar list
   if (!conv || conv.channel) return null;
 
   const viewerMembership = conv.memberships.find((m) => m.userId === viewerUserId);
@@ -125,7 +194,7 @@ export async function buildConversationSummary(
   }
 
   const unreadCount = Math.max(0, conv.lastSeq - viewerMembership.lastReadSeq);
-  const lastMsg = conv.messages[0] ? formatMessageDTO(conv.messages[0]) : null;
+  const lastMsg = conv.messages[0] ? formatMessageDTO(conv.messages[0], viewerUserId) : null;
 
   return {
     id: conv.id,
@@ -146,6 +215,7 @@ export async function buildConversationSummary(
     }),
     lastMessage: lastMsg,
     isBlocked,
+    isMuted: viewerMembership.isMuted,
   };
 }
 
@@ -167,6 +237,26 @@ conversationsRouter.get('/', requireAuth, async (req, res, next) => {
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 
     res.status(200).json({ conversations: validSummaries });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Toggle Per-Chat Mute (§5 Notifications)
+conversationsRouter.patch('/:id/mute', requireAuth, csrfProtection, async (req, res, next) => {
+  try {
+    const conversationId = req.params.id;
+    const userId = req.authUser!.id;
+    const isMuted = Boolean(req.body?.isMuted);
+
+    await prisma.membership.update({
+      where: {
+        conversationId_userId: { conversationId, userId },
+      },
+      data: { isMuted },
+    });
+
+    res.status(200).json({ ok: true, isMuted });
   } catch (err) {
     next(err);
   }
@@ -271,6 +361,10 @@ conversationsRouter.get('/:id/messages', requireAuth, async (req, res, next) => 
         sender: {
           select: { id: true, username: true, displayName: true, avatarUrl: true },
         },
+        attachment: true,
+        reactions: {
+          include: { user: { select: { username: true } } },
+        },
         replyTo: {
           include: {
             sender: { select: { displayName: true } },
@@ -284,7 +378,15 @@ conversationsRouter.get('/:id/messages', requireAuth, async (req, res, next) => 
 
     const hasMore = messages.length > limit;
     const pageItems = hasMore ? messages.slice(0, limit) : messages;
-    const orderedAsc = pageItems.reverse().map(formatMessageDTO);
+
+    // Filter out messages deleted "for_me" by this user
+    const visibleItems = pageItems.filter(
+      (m) => !parseStringArray(m.deletedForJson).includes(userId)
+    );
+
+    const orderedAsc = visibleItems
+      .reverse()
+      .map((m) => formatMessageDTO(m, userId));
     const nextCursor = hasMore && orderedAsc.length > 0 ? orderedAsc[0]!.seq : null;
 
     res.status(200).json({

@@ -16,6 +16,8 @@ import { callsRouter } from './routes/calls.js';
 import { aiRouter } from './routes/ai.js';
 import { campusRouter } from './routes/campus.js';
 import { mapRouter } from './routes/map.js';
+import { mediaRouter } from './routes/media.js';
+import { adminRouter } from './routes/admin.js';
 import { createRateLimitMiddleware, apiRateLimiter } from './security/rateLimit.js';
 
 export function createApp() {
@@ -31,7 +33,7 @@ export function createApp() {
           scriptSrc: ["'self'"],
           styleSrc: ["'self'", "'unsafe-inline'"],
           imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
-          mediaSrc: ["'self'", 'blob:', 'mediastream:'],
+          mediaSrc: ["'self'", 'data:', 'blob:', 'mediastream:'],
           connectSrc: ["'self'", config.clientOrigin, 'ws:', 'wss:', 'https://*.openstreetmap.org'],
         },
       },
@@ -49,7 +51,7 @@ export function createApp() {
   );
 
   app.use(cookieParser());
-  app.use(express.json({ limit: '2mb' }));
+  app.use(express.json({ limit: '10mb' }));
   app.use(createRateLimitMiddleware(apiRateLimiter));
 
   app.get('/api/health', (_req, res) => {
@@ -67,6 +69,8 @@ export function createApp() {
   app.use('/api/ai', aiRouter);
   app.use('/api/campus', campusRouter);
   app.use('/api/map', mapRouter);
+  app.use('/api/media', mediaRouter);
+  app.use('/api/admin', adminRouter);
   app.use('/api/users', usersRouter);
   app.use('/api/profile', profileRouter);
   app.use('/api/contacts', contactsRouter);
