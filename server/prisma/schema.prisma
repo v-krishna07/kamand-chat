@@ -57,6 +57,26 @@ model User {
   @@index([displayName])
 }
 
+model Place {
+  id                 String   @id
+  code               String   @unique
+  canonicalName      String
+  aliasesJson        String   @default("[]")
+  category           String   // hostel | academic | mess | library | sports | gate | bus_stop | hospital | shop
+  hostel             String?
+  block              String?
+  lat                Float
+  lng                Float
+  isPlaceholderCoord Boolean  @default(true)
+  entrancesJson      String   @default("[\"Main Entrance\"]")
+  notes              String   @default("")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([category])
+  @@index([hostel, block])
+}
+
 model Session {
   id         String   @id @default(uuid())
   tokenHash  String   @unique

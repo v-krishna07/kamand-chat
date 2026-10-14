@@ -2,11 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { MessageSquare } from 'lucide-react';
 import type { UserSummary } from '@kamand/shared';
 import { useChatStore } from '../store/useChatStore.js';
+import { useMapStore } from '../store/useMapStore.js';
 import { Sidebar, type PrimarySection } from '../components/Sidebar.js';
 import { ChatView } from '../components/ChatView.js';
 import { CommunityWorkspace } from '../components/CommunityWorkspace.js';
 import { CallOverlay } from '../components/CallOverlay.js';
 import { CampusHub } from '../components/CampusHub.js';
+import { CampusMapView } from '../components/CampusMapView.js';
 
 interface MessengerPageProps {
   currentUser: UserSummary;
@@ -22,16 +24,24 @@ export const MessengerPage: React.FC<MessengerPageProps> = ({ currentUser, onLog
     selectConversation,
   } = useChatStore();
 
+  const { loadMapBundle, selectPlaceByCodeOrQuery } = useMapStore();
+
   const [activeSection, setActiveSection] = useState<PrimarySection>('chats');
 
   useEffect(() => {
     void loadConversations();
+    void loadMapBundle();
     const cleanup = initRealtime(currentUser);
     return cleanup;
-  }, [currentUser, initRealtime, loadConversations]);
+  }, [currentUser, initRealtime, loadConversations, loadMapBundle]);
 
   const activeConversation =
     conversations.find((c) => c.id === activeConversationId) ?? null;
+
+  const handleOpenMapForCode = (roomCode: string) => {
+    selectPlaceByCodeOrQuery(roomCode);
+    setActiveSection('map');
+  };
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-950">
@@ -41,7 +51,8 @@ export const MessengerPage: React.FC<MessengerPageProps> = ({ currentUser, onLog
         className={`${
           (activeConversation && activeSection === 'chats') ||
           activeSection === 'communities' ||
-          activeSection === 'campus'
+          activeSection === 'campus' ||
+          activeSection === 'map'
             ? 'hidden md:flex'
             : 'flex'
         } h-full w-full md:w-auto flex-shrink-0`}
@@ -58,6 +69,7 @@ export const MessengerPage: React.FC<MessengerPageProps> = ({ currentUser, onLog
         className={`${
           activeSection === 'communities' ||
           activeSection === 'campus' ||
+          activeSection === 'map' ||
           activeConversation
             ? 'flex'
             : 'hidden md:flex'
@@ -67,11 +79,17 @@ export const MessengerPage: React.FC<MessengerPageProps> = ({ currentUser, onLog
           <CommunityWorkspace currentUser={currentUser} />
         ) : activeSection === 'campus' ? (
           <CampusHub />
+        ) : activeSection === 'map' ? (
+          <CampusMapView
+            currentUser={currentUser}
+            onOpenChatWithEta={() => setActiveSection('chats')}
+          />
         ) : activeConversation ? (
           <ChatView
             conversation={activeConversation}
             currentUser={currentUser}
             onBackMobile={() => void selectConversation(null, currentUser.id)}
+            onOpenMapForCode={handleOpenMapForCode}
           />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center p-8 text-center select-none">
@@ -79,11 +97,11 @@ export const MessengerPage: React.FC<MessengerPageProps> = ({ currentUser, onLog
               <MessageSquare className="w-8 h-8" />
             </div>
             <h2 className="text-heading text-xl text-slate-100">
-              Select a conversation, open Groups, or explore Campus
+              Select a conversation, open Groups, Campus, or Map
             </h2>
             <p className="text-sm text-slate-400 max-w-sm mt-1">
               Real-time E2EE messaging, voice/video calls, structured IIT Mandi channels, and
-              degrade-gracefully campus connectors.
+              offline campus navigation.
             </p>
           </div>
         )}

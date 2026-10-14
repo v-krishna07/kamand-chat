@@ -857,6 +857,63 @@ export const GroundedCampusAiQuerySchema = z.object({
 });
 export type GroundedCampusAiQuery = z.infer<typeof GroundedCampusAiQuerySchema>;
 
+// ============================================================================
+// 10. Campus Map & Navigation Schemas (Phase 8 - Section 13)
+// ============================================================================
+
+export const PlaceCategorySchema = z.enum([
+  'hostel',
+  'academic',
+  'mess',
+  'library',
+  'sports',
+  'gate',
+  'bus_stop',
+  'hospital',
+  'shop',
+]);
+export type PlaceCategory = z.infer<typeof PlaceCategorySchema>;
+
+export const CampusPlaceDTO_Schema = z.object({
+  id: z.string(),
+  code: z.string(),
+  canonicalName: z.string(),
+  aliases: z.array(z.string()),
+  category: PlaceCategorySchema,
+  hostel: z.string().nullable().optional(),
+  block: z.string().nullable().optional(),
+  lat: z.number(),
+  lng: z.number(),
+  isPlaceholderCoord: z.boolean().default(true),
+  entrances: z.array(z.string()).default([]),
+  notes: z.string().default(''),
+});
+export type CampusPlaceDTO = z.infer<typeof CampusPlaceDTO_Schema>;
+
+export const UpsertCampusPlaceInputSchema = z.object({
+  id: z.string().optional(),
+  code: z.string().trim().min(1).max(30).transform((v) => v.toUpperCase()),
+  canonicalName: z.string().trim().min(2).max(120),
+  aliases: z.array(z.string().trim().min(1).max(60)).max(30).default([]),
+  category: PlaceCategorySchema,
+  hostel: z.string().trim().max(10).nullable().optional(),
+  block: z.string().trim().max(10).nullable().optional(),
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+  entrances: z.array(z.string()).optional().default(['Main Entrance']),
+  notes: z.string().trim().max(400).optional().default(''),
+});
+export type UpsertCampusPlaceInput = z.infer<typeof UpsertCampusPlaceInputSchema>;
+
+export const CampusPathEdgeSchema = z.object({
+  fromId: z.string(),
+  toId: z.string(),
+  distanceMeters: z.number().positive(),
+  stepFree: z.boolean().default(true),
+  instructionHint: z.string().optional(),
+});
+export type CampusPathEdge = z.infer<typeof CampusPathEdgeSchema>;
+
 
 export const CampusConnectorHealthSchema = z.object({
   id: z.string(),

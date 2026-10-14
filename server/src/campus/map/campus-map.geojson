@@ -1,0 +1,200 @@
+{
+  "type": "FeatureCollection",
+  "metadata": {
+    "notice": "PLACEHOLDER_COORDINATES_UNTIL_OVERPASS_IMPORT: All coordinates below are clearly marked placeholders centered around IIT Mandi Kamand campus bounding box. Run `npx tsx src/campus/map/overpassImport.ts` or use the Admin Map Editor to import/refine real OpenStreetMap coordinates."
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "place-a12",
+        "code": "A-12",
+        "canonicalName": "Hostel A-12 (South Campus)",
+        "aliases": ["A-12", "A12", "a 12", "A block 12", "Hostel A12"],
+        "category": "hostel",
+        "hostel": "A",
+        "block": "12",
+        "isPlaceholderCoord": true,
+        "entrances": ["South Courtyard Entrance", "Main Stairwell"],
+        "notes": "PLACEHOLDER_COORD · South Campus student residence block"
+      },
+      "geometry": { "type": "Point", "coordinates": [76.9842, 31.7742] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "place-b12",
+        "code": "B-12",
+        "canonicalName": "Hostel B-12 (North Campus)",
+        "aliases": ["B-12", "B12", "b 12", "B block 12", "Hostel B12"],
+        "category": "hostel",
+        "hostel": "B",
+        "block": "12",
+        "isPlaceholderCoord": true,
+        "entrances": ["East Ramp Entrance (Step-Free)"],
+        "notes": "PLACEHOLDER_COORD · North Campus residence near Pine Mess"
+      },
+      "geometry": { "type": "Point", "coordinates": [76.9862, 31.7768] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "place-b19",
+        "code": "B-19",
+        "canonicalName": "Hostel B-19 (North Campus)",
+        "aliases": ["B-19", "B19", "b 19", "B block 19", "Hostel B19"],
+        "category": "hostel",
+        "hostel": "B",
+        "block": "19",
+        "isPlaceholderCoord": true,
+        "entrances": ["North Common Room Entrance", "West Ground Ramp"],
+        "notes": "PLACEHOLDER_COORD · North Campus residence & hackathon common room"
+      },
+      "geometry": { "type": "Point", "coordinates": [76.9869, 31.7774] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "place-c10",
+        "code": "C-10",
+        "canonicalName": "Hostel C-10 (North Campus)",
+        "aliases": ["C-10", "C10", "c 10", "C block 10", "Hostel C10"],
+        "category": "hostel",
+        "hostel": "C",
+        "block": "10",
+        "isPlaceholderCoord": true,
+        "entrances": ["Main Plaza Entrance"],
+        "notes": "PLACEHOLDER_COORD · North Campus residence block"
+      },
+      "geometry": { "type": "Point", "coordinates": [76.9875, 31.7779] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "place-pine-mess",
+        "code": "PINE-MESS",
+        "canonicalName": "Pine Mess (Pure Vegetarian Dining)",
+        "aliases": ["pine mess", "mess", "vegetarian mess", "dining hall", "north mess"],
+        "category": "mess",
+        "hostel": null,
+        "block": null,
+        "isPlaceholderCoord": true,
+        "entrances": ["Ground Floor Ramp Entrance"],
+        "notes": "PLACEHOLDER_COORD · Pure vegetarian campus dining facility"
+      },
+      "geometry": { "type": "Point", "coordinates": [76.9865, 31.7771] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "place-library",
+        "code": "LIBRARY",
+        "canonicalName": "Central Library · IIT Mandi",
+        "aliases": ["library", "central library", "reading room", "lib"],
+        "category": "library",
+        "hostel": null,
+        "block": null,
+        "isPlaceholderCoord": true,
+        "entrances": ["Main Glass Lobby (Elevator & Ramp)"],
+        "notes": "PLACEHOLDER_COORD · 24x7 Reading Room & Book Stack"
+      },
+      "geometry": { "type": "Point", "coordinates": [76.9855, 31.7758] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "place-a13-lh1",
+        "code": "A13-LH1",
+        "canonicalName": "Academic Block A-13 · Lecture Hall Complex",
+        "aliases": ["A-13", "A13", "a 13", "A13-LH1", "A13-LH2", "academic block a13", "lecture hall"],
+        "category": "academic",
+        "hostel": "A",
+        "block": "13",
+        "isPlaceholderCoord": true,
+        "entrances": ["North Atrium (Step-Free)", "South Stairs"],
+        "notes": "PLACEHOLDER_COORD · Main IC-112 & IC-131 lecture halls"
+      },
+      "geometry": { "type": "Point", "coordinates": [76.9851, 31.7753] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "place-a17-lab2",
+        "code": "A17-LAB2",
+        "canonicalName": "Academic Block A-17 · SCEE & Computing Labs",
+        "aliases": ["A-17", "A17", "a 17", "A17-LAB2", "computing lab", "sntc lab", "robotics lab"],
+        "category": "academic",
+        "hostel": "A",
+        "block": "17",
+        "isPlaceholderCoord": true,
+        "entrances": ["Main Lift Lobby"],
+        "notes": "PLACEHOLDER_COORD · IC-152 Computing Lab & SNTC Tinkering Lab"
+      },
+      "geometry": { "type": "Point", "coordinates": [76.9859, 31.7762] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "place-gate-1",
+        "code": "GATE-1",
+        "canonicalName": "Gate 1 & Bus Stand (North/South Link)",
+        "aliases": ["gate 1", "gate-1", "bus stop", "bus stand", "main gate", "gate 2"],
+        "category": "gate",
+        "hostel": null,
+        "block": null,
+        "isPlaceholderCoord": true,
+        "entrances": ["Main Walkway"],
+        "notes": "PLACEHOLDER_COORD · Shuttle stop for North/South Campus & Mandi town"
+      },
+      "geometry": { "type": "Point", "coordinates": [76.9849, 31.7749] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "place-hospital",
+        "code": "HOSPITAL",
+        "canonicalName": "Campus Medical Center & Hospital",
+        "aliases": ["hospital", "medical center", "health center", "dispensary", "clinic"],
+        "category": "hospital",
+        "hostel": null,
+        "block": null,
+        "isPlaceholderCoord": true,
+        "entrances": ["Emergency Ramp (24x7)"],
+        "notes": "PLACEHOLDER_COORD · 24x7 medical support & ambulance bay"
+      },
+      "geometry": { "type": "Point", "coordinates": [76.9845, 31.7746] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "place-sports",
+        "code": "SPORTS",
+        "canonicalName": "Kamand Sports Complex & Swimming Pool",
+        "aliases": ["sports", "sports complex", "swimming pool", "gym", "badminton court", "ground"],
+        "category": "sports",
+        "hostel": null,
+        "block": null,
+        "isPlaceholderCoord": true,
+        "entrances": ["West Gate"],
+        "notes": "PLACEHOLDER_COORD · Swimming pool, indoor courts & athletic ground"
+      },
+      "geometry": { "type": "Point", "coordinates": [76.9860, 31.7765] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "place-nescafe",
+        "code": "NESCAFE",
+        "canonicalName": "Nescafé & Campus Tuck Shop",
+        "aliases": ["nescafe", "shop", "canteen", "chai", "coffee", "tuck shop"],
+        "category": "shop",
+        "hostel": null,
+        "block": null,
+        "isPlaceholderCoord": true,
+        "entrances": ["Open Kiosk"],
+        "notes": "PLACEHOLDER_COORD · Late-night coffee, Maggi & stationery"
+      },
+      "geometry": { "type": "Point", "coordinates": [76.9853, 31.7756] }
+    }
+  ]
+}

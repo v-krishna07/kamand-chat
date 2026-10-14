@@ -15,6 +15,7 @@ import { faceRouter } from './routes/face.js';
 import { callsRouter } from './routes/calls.js';
 import { aiRouter } from './routes/ai.js';
 import { campusRouter } from './routes/campus.js';
+import { mapRouter } from './routes/map.js';
 import { createRateLimitMiddleware, apiRateLimiter } from './security/rateLimit.js';
 
 export function createApp() {
@@ -31,7 +32,7 @@ export function createApp() {
           styleSrc: ["'self'", "'unsafe-inline'"],
           imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
           mediaSrc: ["'self'", 'blob:', 'mediastream:'],
-          connectSrc: ["'self'", config.clientOrigin, 'ws:', 'wss:'],
+          connectSrc: ["'self'", config.clientOrigin, 'ws:', 'wss:', 'https://*.openstreetmap.org'],
         },
       },
       crossOriginResourcePolicy: { policy: 'same-site' },
@@ -65,6 +66,7 @@ export function createApp() {
   app.use('/api/calls', callsRouter);
   app.use('/api/ai', aiRouter);
   app.use('/api/campus', campusRouter);
+  app.use('/api/map', mapRouter);
   app.use('/api/users', usersRouter);
   app.use('/api/profile', profileRouter);
   app.use('/api/contacts', contactsRouter);

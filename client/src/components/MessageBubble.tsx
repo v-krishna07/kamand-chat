@@ -11,6 +11,7 @@ interface MessageBubbleProps {
   isLastInGroup: boolean;
   onReply: (message: MessageDTO) => void;
   onRetry: (messageId: string) => void;
+  onTapRoomChip?: (roomCode: string) => void;
 }
 
 const ROOM_CODE_REGEX = /\b([A-D][-\s]?\d{1,3})\b/gi;
@@ -22,6 +23,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   isLastInGroup,
   onReply,
   onRetry,
+  onTapRoomChip,
 }) => {
   const [swipeX, setSwipeX] = useState(0);
   const startXRef = useRef<number | null>(null);
@@ -36,7 +38,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (startXRef.current === null) return;
     const deltaX = e.clientX - startXRef.current;
-    // Swipe right to reply with progressive rubber-banding (§9, §15)
     if (deltaX > 8) {
       e.currentTarget.setPointerCapture(e.pointerId);
       const damped = rubberband(deltaX - 8, 110, 0.55);
@@ -67,7 +68,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     minute: '2-digit',
   });
 
-  // Render campus room codes (e.g., B-19, A-12, C-10) as interactive chips (§13)
+  // Render campus room codes (e.g., B-19, A-12, C-10) as tappable chips opening the Campus Map (§13)
   const renderBodyWithRoomChips = (text: string) => {
     const parts = text.split(ROOM_CODE_REGEX);
     return parts.map((part, idx) => {
@@ -75,14 +76,19 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         ROOM_CODE_REGEX.lastIndex = 0;
         const normalized = part.toUpperCase().replace(/\s+/g, '-');
         return (
-          <span
+          <button
             key={idx}
-            title={`Campus Location: ${normalized}`}
-            className="inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded-md bg-white/15 text-sky-200 font-medium text-xs border border-white/20"
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onTapRoomChip?.(normalized);
+            }}
+            title={`Open ${normalized} on Campus Map`}
+            className="fluid-press inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded-md bg-white/20 hover:bg-white/30 text-sky-100 font-semibold text-xs border border-white/25 cursor-pointer"
           >
-            <MapPin className="w-3 h-3" />
-            {normalized}
-          </span>
+            <MapPin className="w-3 h-3 text-sky-300" />
+            <span>{normalized}</span>
+          </button>
         );
       }
       return <React.Fragment key={idx}>{part}</React.Fragment>;

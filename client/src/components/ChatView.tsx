@@ -26,12 +26,14 @@ interface ChatViewProps {
   conversation: ConversationSummary;
   currentUser: UserSummary;
   onBackMobile: () => void;
+  onOpenMapForCode?: (roomCode: string) => void;
 }
 
 export const ChatView: React.FC<ChatViewProps> = ({
   conversation,
   currentUser,
   onBackMobile,
+  onOpenMapForCode,
 }) => {
   const {
     messagesByConv,
@@ -186,12 +188,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 {peer.displayName}
               </h2>
               {peer.roomCode && (
-                <span
-                  title="Accepted Contact Room Code"
-                  className="px-1.5 py-0.5 text-[11px] font-medium rounded-md bg-sky-500/15 text-sky-300 border border-sky-500/30"
+                <button
+                  type="button"
+                  onClick={() => onOpenMapForCode?.(peer.roomCode!)}
+                  title="Open Contact Room on Campus Map"
+                  className="fluid-press px-1.5 py-0.5 text-[11px] font-medium rounded-md bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30"
                 >
                   {peer.roomCode}
-                </span>
+                </button>
               )}
             </div>
             <p className="text-caption text-slate-400 truncate">
@@ -335,6 +339,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 textareaRef.current?.focus();
               }}
               onRetry={(messageId) => void retryMessage(conversation.id, messageId, currentUser)}
+              onTapRoomChip={onOpenMapForCode}
             />
           );
         })}
