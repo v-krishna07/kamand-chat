@@ -7,4 +7,18 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/three') || id.includes('node_modules/@react-three')) {
+            return 'vendor-three-hero';
+          }
+          if (id.includes('node_modules/motion')) {
+            return 'vendor-motion';
+          }
+        },
+      },
+    },
+  },
 });

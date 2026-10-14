@@ -57,10 +57,13 @@ export class TimetableService {
       return [];
     }
 
+    const userIds = query.userIds ?? [];
+    const minDurationMins = query.minDurationMins ?? 30;
+
     // 1. Gather all busy intervals across all specified users
     const allBusyIntervals: Array<{ start: number; end: number }> = [];
 
-    for (const userId of query.userIds) {
+    for (const userId of userIds) {
       const enrollments = await prisma.courseEnrollment.findMany({
         where: { userId },
         select: { courseId: true },
@@ -111,13 +114,13 @@ export class TimetableService {
     for (const busy of mergedBusy) {
       if (busy.start > currentMarker) {
         const duration = busy.start - currentMarker;
-        if (duration >= query.minDurationMins) {
+        if (duration >= minDurationMins) {
           freeSlots.push({
             dayOfWeek: query.dayOfWeek,
             startTime: minutesToTime(currentMarker),
             endTime: minutesToTime(busy.start),
             durationMins: duration,
-            participantsCount: query.userIds.length,
+            participantsCount: userIds.length,
           });
         }
       }
@@ -127,13 +130,13 @@ export class TimetableService {
     // Check tail gap after last busy interval
     if (currentMarker < windowEndMin) {
       const duration = windowEndMin - currentMarker;
-      if (duration >= query.minDurationMins) {
+      if (duration >= minDurationMins) {
         freeSlots.push({
           dayOfWeek: query.dayOfWeek,
           startTime: minutesToTime(currentMarker),
           endTime: minutesToTime(windowEndMin),
           durationMins: duration,
-          participantsCount: query.userIds.length,
+          participantsCount: userIds.length,
         });
       }
     }

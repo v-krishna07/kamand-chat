@@ -8,27 +8,52 @@ export class SlidingWindowRateLimiter {
   private buckets = new Map<string, Bucket>();
   private readonly windowMs: number;
   private readonly maxRequests: number;
+  private readonly maxTrackedKeys = 5_000;
 
   constructor(windowMs: number, maxRequests: number) {
     this.windowMs = windowMs;
     this.maxRequests = maxRequests;
   }
 
-  public consume(key: string, now = Date.now()): { allowed: boolean; retryAfterSec: number } {
+  private pruneExpiredKeys(now: number): void {
     const cutoff = now - this.windowMs;
-    const existing = this.buckets.get(key) ?? { timestamps: [] };
-    existing.timestamps = existing.timestamps.filter((t) => t > cutoff);
+    for (const [key, bucket] of this.buckets.entries()) {
+      bucket.timestamps = bucket.timestamps.filter((t) => t > cutoff);
+      if (bucket.timestamps.length === 0) {
+        this.buckets.delete(key);
+      }
+    }
+  }
 
-    if (existing.timestamps.length >= this.maxRequests) {
-      const oldest = existing.timestamps[0] ?? now;
+  public consume(key: string, now = Date.now()): { allowed: boolean; retryAfterSec: number } {
+    if (this.buckets.size > this.maxTrackedKeys) {
+      this.pruneExpiredKeys(now);
+    }
+
+    const cutoff = now - this.windowMs;
+    const existing = this.buckets.get(key);
+    const activeTimestamps = existing
+      ? existing.timestamps.filter((t) => t > cutoff)
+      : [];
+
+    if (activeTimestamps.length === 0 && existing) {
+      this.buckets.delete(key);
+    }
+
+    if (activeTimestamps.length >= this.maxRequests) {
+      const oldest = activeTimestamps[0] ?? now;
       const retryAfterSec = Math.max(1, Math.ceil((oldest + this.windowMs - now) / 1000));
-      this.buckets.set(key, existing);
+      this.buckets.set(key, { timestamps: activeTimestamps });
       return { allowed: false, retryAfterSec };
     }
 
-    existing.timestamps.push(now);
-    this.buckets.set(key, existing);
+    activeTimestamps.push(now);
+    this.buckets.set(key, { timestamps: activeTimestamps });
     return { allowed: true, retryAfterSec: 0 };
+  }
+
+  public size(): number {
+    return this.buckets.size;
   }
 
   public reset(): void {

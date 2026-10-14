@@ -1,283 +1,163 @@
-import { prisma } from '../db.js';
-import type { MealType, MessMealDTO, UpdateMessMealInput } from '@kamand/shared';
+import type { MessHallId } from '@kamand/shared';
 
-export const ALL_CAMPUS_MESSES = [
+export interface MessMealSlot {
+  slot: 'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner';
+  timing: string;
+  items: string[];
+  isActiveNow: boolean;
+}
+
+export interface MessHallSchedule {
+  messId: MessHallId;
+  campusZone: 'South Campus' | 'North Campus';
+  specialty: string;
+  meals: MessMealSlot[];
+}
+
+export const ALL_MESS_HALL_IDS: MessHallId[] = [
   'Pine Mess',
   'Oak Mess',
   'Cedar Mess',
   'Alder Mess',
   'Maple Mess',
   'Peepal Mess',
-] as const;
+];
 
-export type CampusMessName = (typeof ALL_CAMPUS_MESSES)[number];
-
-export function determineCurrentMealType(hour = new Date().getHours()): MealType {
-  if (hour >= 6 && hour < 11) return 'breakfast';
-  if (hour >= 11 && hour < 16) return 'lunch';
-  if (hour >= 16 && hour < 19) return 'snacks';
-  return 'dinner';
-}
-
-export function getCurrentDayName(date = new Date()): string {
-  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  return days[date.getDay()]!;
-}
-
-// Comprehensive realistic fallback menus for all 6 IIT Mandi Mess Halls across South & North Campuses
-const DEFAULT_FALLBACK_MENUS: Record<
-  string,
-  Record<MealType, { items: string[]; dietaryNote: string }>
+const MESS_CATALOG: Record<
+  MessHallId,
+  {
+    campusZone: 'South Campus' | 'North Campus';
+    specialty: string;
+    breakfast: string[];
+    lunch: string[];
+    snacks: string[];
+    dinner: string[];
+  }
 > = {
   'Pine Mess': {
-    breakfast: {
-      items: ['Aloo Paratha with Curd', 'Boiled Sprouts', 'Bread & Jam', 'Poha with Sev', 'Tea & Coffee'],
-      dietaryNote: '100% Pure Vegetarian · South Campus',
-    },
-    lunch: {
-      items: ['Paneer Butter Masala', 'Yellow Dal Tadka', 'Jeera Rice', 'Tawa Chapatis', 'Boondi Raita', 'Green Salad'],
-      dietaryNote: 'Pure Vegetarian · Jain options available on counter',
-    },
-    snacks: {
-      items: ['Veg Cutlets with Mint Chutney', 'Biscuits', 'Hot Ginger Chai'],
-      dietaryNote: 'Evening Snacks',
-    },
-    dinner: {
-      items: ['Mix Veg Korma', 'Dal Makhani', 'Steamed Rice', 'Butter Roti', 'Gulab Jamun', 'Warm Cardamom Milk'],
-      dietaryNote: 'Pure Vegetarian Special Feast',
-    },
+    campusZone: 'South Campus',
+    specialty: 'Pure Vegetarian · Himachali Dham & North Indian Favorites',
+    breakfast: ['Aloo Paratha with Curd', 'Sprouted Moong Salad', 'Masala Chai & Milk'],
+    lunch: ['Paneer Butter Masala', 'Moong Dal Tadka', 'Jeera Rice', 'Hot Phulka', 'Boondi Raita'],
+    snacks: ['Samosa Chaat', 'Mint Chutney', 'Adrak Chai & Filter Coffee'],
+    dinner: ['Mix Veg Kadhai', 'Dal Makhani', 'Steamed Basmati Rice', 'Gulab Jamun'],
   },
   'Oak Mess': {
-    breakfast: {
-      items: ['Masala Dosa with Sambar & Coconut Chutney', 'Boiled Eggs', 'Bread Omelette', 'Banana', 'Tea/Coffee'],
-      dietaryNote: 'Multi-Cuisine · South Campus',
-    },
-    lunch: {
-      items: ['Kadai Chicken / Kadai Paneer', 'Rajma Masala', 'Steamed Rice', 'Phulkas', 'Cucumber Salad', 'Ice Cream'],
-      dietaryNote: 'Non-Veg counter separate from Veg preparations',
-    },
-    snacks: {
-      items: ['Samosa with Saunth Chutney', 'Elaichi Chai'],
-      dietaryNote: 'Evening Snacks',
-    },
-    dinner: {
-      items: ['Egg Curry / Shahi Paneer', 'Moong Dal Fry', 'Jeera Pulao', 'Roti', 'Fruit Custard'],
-      dietaryNote: 'South Campus Dining Hall',
-    },
+    campusZone: 'South Campus',
+    specialty: 'Multi-Cuisine · South & North Indian Rotation',
+    breakfast: ['Masala Dosa', 'Coconut Chutney & Sambar', 'Boiled Eggs / Banana', 'Coffee'],
+    lunch: ['Rajma Raseela', 'Aloo Gobhi Masala', 'Veg Pulao', 'Chapati', 'Fresh Green Salad'],
+    snacks: ['Vada Pav', 'Fried Green Chillies', 'Lemon Iced Tea & Masala Chai'],
+    dinner: ['Kadhai Paneer / Egg Curry', 'Yellow Dal Fry', 'Jeera Rice', 'Fruit Custard'],
   },
   'Cedar Mess': {
-    breakfast: {
-      items: ['Idli Vada Combo', 'Sambar & Tomato Chutney', 'Cornflakes with Milk', 'Filter Coffee'],
-      dietaryNote: 'South Campus · Cedar Block',
-    },
-    lunch: {
-      items: ['Chole Bhature / Chole Kulche', 'Veg Biryani', 'Boondi Raita', 'Pickle & Onion Rings'],
-      dietaryNote: 'Special North-Indian Lunch',
-    },
-    snacks: {
-      items: ['Pav Bhaji', 'Masala Tea'],
-      dietaryNote: 'Snacks Counter',
-    },
-    dinner: {
-      items: ['Dum Aloo Kashmiri', 'Dal Palak', 'Steamed Rice', 'Butter Naan', 'Rasgulla'],
-      dietaryNote: 'Cedar Dining Complex',
-    },
+    campusZone: 'North Campus',
+    specialty: 'North & South Indian Student Dining · Near B-19',
+    breakfast: ['Poha with Sev & Peanuts', 'Jalebi', 'Toast & Butter', 'Hot Cocoa / Tea'],
+    lunch: ['Chole Bhature', 'Kulcha & Phulka', 'Onion Mint Salad', 'Sweet Lassi'],
+    snacks: ['Veg Puff Pastry', 'Tomato Ketchup', 'Cardamom Tea'],
+    dinner: ['Malai Kofta', 'Arhar Dal Tadka', 'Steamed Rice', 'Chapati', 'Rice Kheer'],
   },
   'Alder Mess': {
-    breakfast: {
-      items: ['Methi Thepla with Pickle', 'Upma with Coconut Chutney', 'Boiled Eggs', 'Tea & Coffee'],
-      dietaryNote: 'North Campus · Alder Hostels',
-    },
-    lunch: {
-      items: ['Chicken Biryani / Veg Hyderabadi Biryani', 'Mirchi Ka Salan', 'Onion Raita', 'Papad'],
-      dietaryNote: 'North Campus Dining',
-    },
-    snacks: {
-      items: ['Pani Puri & Bhel Puri', 'Cold Coffee / Hot Tea'],
-      dietaryNote: 'Chaat Counter',
-    },
-    dinner: {
-      items: ['Matar Paneer', 'Chana Dal Fry', 'Jeera Rice', 'Tawa Roti', 'Moong Dal Halwa'],
-      dietaryNote: 'Warm Mountain Dining',
-    },
+    campusZone: 'North Campus',
+    specialty: 'Central North Campus Dining Hall · High-Protein & Balanced Menu',
+    breakfast: ['Idli & Medu Vada', 'Spicy Sambar', 'Peanut Chutney', 'Roasted Chana'],
+    lunch: ['Palak Paneer', 'Kala Chana Masala', 'Lemon Rice', 'Roti', 'Cucumber Raita'],
+    snacks: ['Masala Maggi Noodles', 'Sweet Corn Cup', 'Hot Coffee'],
+    dinner: ['Mushroom Matar Masala', 'Dal Panchmel', 'Jeera Rice', 'Chapati', 'Moong Dal Halwa'],
   },
   'Maple Mess': {
-    breakfast: {
-      items: ['Stuffed Gobhi Paratha with Butter', 'Oatmeal Porridge', 'Fresh Seasonal Fruits', 'Adrak Chai'],
-      dietaryNote: 'North Campus · Main Dining Complex D1/D2',
-    },
-    lunch: {
-      items: ['Butter Chicken / Butter Paneer', 'Dal Maharani', 'Basmati Rice', 'Garlic Roti', 'Pineapple Raita', 'Papad'],
-      dietaryNote: 'D1/D2 Central Mess Complex',
-    },
-    snacks: {
-      items: ['Veg Momos with Spicy Dip', 'Mountain Herbal Tea'],
-      dietaryNote: 'Himachali Special Snacks',
-    },
-    dinner: {
-      items: ['Mushroom Do Pyaza', 'Dal Tadka', 'Peas Pulao', 'Chapatis', 'Hot Jalebi with Rabri'],
-      dietaryNote: 'North Campus Special Dinner',
-    },
+    campusZone: 'North Campus',
+    specialty: 'D1 / D2 Cluster · Bakery Specials & Fresh Salad Bar',
+    breakfast: ['Stuffed Paneer Paratha', 'Homemade White Butter', 'Pickle', 'Masala Tea'],
+    lunch: ['Veg Biryani with Mirchi Ka Salan', 'Soyabean Curry', 'Chapati', 'Veg Raita'],
+    snacks: ['Grilled Veg Sandwich', 'Potato Wedges', 'Cold Coffee'],
+    dinner: ['Shahi Paneer', 'Dal Tadka', 'Steamed Rice', 'Phulka', 'Warm Brownie'],
   },
   'Peepal Mess': {
-    breakfast: {
-      items: ['Uttapam with Sambar', 'Bread Toast & Butter', 'Boiled Sprouts', 'Hot Chocolate / Coffee'],
-      dietaryNote: 'North Campus · Peepal Block',
-    },
-    lunch: {
-      items: ['Fish Curry / Malai Kofta', 'Arhar Dal', 'Steamed Rice', 'Tandoori Roti', 'Mint Raita'],
-      dietaryNote: 'North Campus Peepal Dining',
-    },
-    snacks: {
-      items: ['Aloo Tikki Chaat', 'Hot Lemon Tea'],
-      dietaryNote: 'Snack Station',
-    },
-    dinner: {
-      items: ['Baingan Bharta', 'Panchmel Dal', 'Jeera Rice', 'Fulka', 'Kheer with Nuts'],
-      dietaryNote: 'Homestyle Comfort Dinner',
-    },
+    campusZone: 'North Campus',
+    specialty: 'North Complex · Hygienic Multi-Counter Dining',
+    breakfast: ['Uttapam with Mixed Veg', 'Tomato & Coconut Chutney', 'Fruit Bowl', 'Tea'],
+    lunch: ['Bhindi Do Pyaza', 'Chana Dal Fry', 'Steamed Rice', 'Chapati', 'Buttermilk (Chaas)'],
+    snacks: ['Bhel Puri', 'Roasted Peanuts', 'Ginger Tea'],
+    dinner: ['Paneer Lababdar', 'Black Dal', 'Peas Pulao', 'Roti', 'Seviyan Kheer'],
   },
 };
 
-export class MessService {
-  public async getWeeklyMenu(hostelName?: string): Promise<MessMealDTO[]> {
-    const whereClause: { hostelName?: string } = {};
-    if (hostelName) {
-      whereClause.hostelName = hostelName;
-    }
-
-    const records = await prisma.messMenu.findMany({
-      where: whereClause,
-      orderBy: [{ hostelName: 'asc' }, { dayOfWeek: 'asc' }],
-    });
-
-    const currentMeal = determineCurrentMealType();
-    const currentDay = getCurrentDayName();
-
-    if (records.length === 0) {
-      // Generate full week from fallback fixtures
-      const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-      const targetMesses = hostelName ? [hostelName] : ALL_CAMPUS_MESSES;
-      const mealTypes: MealType[] = ['breakfast', 'lunch', 'snacks', 'dinner'];
-      const synthetic: MessMealDTO[] = [];
-
-      for (const mName of targetMesses) {
-        const messDict = DEFAULT_FALLBACK_MENUS[mName] || DEFAULT_FALLBACK_MENUS['Pine Mess']!;
-        for (const day of days) {
-          for (const mType of mealTypes) {
-            const data = messDict[mType];
-            synthetic.push({
-              id: `fallback-${mName}-${day}-${mType}`,
-              hostelName: mName,
-              dayOfWeek: day,
-              mealType: mType,
-              items: data.items,
-              dietaryNote: data.dietaryNote,
-              isCurrentMeal: day === currentDay && mType === currentMeal,
-            });
-          }
-        }
-      }
-      return synthetic;
-    }
-
-    return records.map((m) => {
-      let items: string[] = [];
-      try {
-        items = JSON.parse(m.items) as string[];
-      } catch {
-        items = [m.items];
-      }
-
-      const isCurrentMeal = m.dayOfWeek === currentDay && m.mealType === currentMeal;
-
-      return {
-        id: m.id,
-        hostelName: m.hostelName,
-        dayOfWeek: m.dayOfWeek,
-        mealType: m.mealType as MealType,
-        items,
-        dietaryNote: m.dietaryNote,
-        isCurrentMeal,
-      };
-    });
-  }
-
-  public async getCurrentMeal(hostelName = 'Pine Mess'): Promise<MessMealDTO | null> {
-    const currentMealType = determineCurrentMealType();
-    const currentDay = getCurrentDayName();
-
-    const record = await prisma.messMenu.findFirst({
-      where: {
-        hostelName,
-        dayOfWeek: currentDay,
-        mealType: currentMealType,
-      },
-    });
-
-    if (!record) {
-      const fallbackMess = DEFAULT_FALLBACK_MENUS[hostelName] || DEFAULT_FALLBACK_MENUS['Pine Mess']!;
-      const meal = fallbackMess[currentMealType];
-      return {
-        id: `fallback-${hostelName}-${currentDay}-${currentMealType}`,
-        hostelName,
-        dayOfWeek: currentDay,
-        mealType: currentMealType,
-        items: meal.items,
-        dietaryNote: meal.dietaryNote,
-        isCurrentMeal: true,
-      };
-    }
-
-    let items: string[] = [];
-    try {
-      items = JSON.parse(record.items) as string[];
-    } catch {
-      items = [record.items];
-    }
-
-    return {
-      id: record.id,
-      hostelName: record.hostelName,
-      dayOfWeek: record.dayOfWeek,
-      mealType: record.mealType as MealType,
-      items,
-      dietaryNote: record.dietaryNote,
-      isCurrentMeal: true,
-    };
-  }
-
-  public async updateMessMeal(input: UpdateMessMealInput): Promise<MessMealDTO> {
-    const updated = await prisma.messMenu.upsert({
-      where: {
-        hostelName_dayOfWeek_mealType: {
-          hostelName: input.hostelName,
-          dayOfWeek: input.dayOfWeek,
-          mealType: input.mealType,
-        },
-      },
-      update: {
-        items: JSON.stringify(input.items),
-        dietaryNote: input.dietaryNote,
-      },
-      create: {
-        hostelName: input.hostelName,
-        dayOfWeek: input.dayOfWeek,
-        mealType: input.mealType,
-        items: JSON.stringify(input.items),
-        dietaryNote: input.dietaryNote,
-      },
-    });
-
-    return {
-      id: updated.id,
-      hostelName: updated.hostelName,
-      dayOfWeek: updated.dayOfWeek,
-      mealType: updated.mealType as MealType,
-      items: input.items,
-      dietaryNote: updated.dietaryNote,
-    };
-  }
+export function getActiveMealSlotName(now = new Date()): 'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner' {
+  const mins = now.getHours() * 60 + now.getMinutes();
+  if (mins < 10 * 60 + 30) return 'Breakfast';
+  if (mins < 15 * 60) return 'Lunch';
+  if (mins < 18 * 60 + 30) return 'Snacks';
+  return 'Dinner';
 }
 
-export const messService = new MessService();
+export function getMessSchedule(messName?: string, now = new Date()): MessHallSchedule {
+  const normalized =
+    ALL_MESS_HALL_IDS.find((m) => m.toLowerCase() === (messName || '').trim().toLowerCase()) ??
+    'Pine Mess';
+
+  const spec = MESS_CATALOG[normalized];
+  const activeSlot = getActiveMealSlotName(now);
+
+  return {
+    messId: normalized,
+    campusZone: spec.campusZone,
+    specialty: spec.specialty,
+    meals: [
+      {
+        slot: 'Breakfast',
+        timing: '07:30 – 09:30',
+        items: spec.breakfast,
+        isActiveNow: activeSlot === 'Breakfast',
+      },
+      {
+        slot: 'Lunch',
+        timing: '12:15 – 14:15',
+        items: spec.lunch,
+        isActiveNow: activeSlot === 'Lunch',
+      },
+      {
+        slot: 'Snacks',
+        timing: '16:45 – 18:00',
+        items: spec.snacks,
+        isActiveNow: activeSlot === 'Snacks',
+      },
+      {
+        slot: 'Dinner',
+        timing: '19:30 – 21:30',
+        items: spec.dinner,
+        isActiveNow: activeSlot === 'Dinner',
+      },
+    ],
+  };
+}
+
+export function getAllMessSchedules(now = new Date()): MessHallSchedule[] {
+  return ALL_MESS_HALL_IDS.map((id) => getMessSchedule(id, now));
+}
+
+export const messService = {
+  getCurrentMeal: async (messName?: string) => {
+    const sched = getMessSchedule(messName);
+    const active = sched.meals.find((m) => m.isActiveNow) || sched.meals[0]!;
+    return {
+      meal: active.slot,
+      hostel: sched.messId,
+      items: active.items,
+      timing: active.timing,
+      isVegetarian: sched.messId === 'Pine Mess',
+    };
+  },
+  getWeeklyMenu: async (messName?: string) => {
+    const sched = getMessSchedule(messName);
+    return sched.meals.map((m) => ({
+      slot: m.slot,
+      timing: m.timing,
+      items: m.items,
+    }));
+  },
+  updateMessMeal: async (data: unknown) => {
+    return data;
+  },
+};

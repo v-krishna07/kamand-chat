@@ -1,16 +1,9 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-/**
- * File Safety, Magic-Byte Validation, EXIF Stripping & Storage Abstraction (Section 2 & Section 5)
- * - Validates uploaded files by magic bytes (never trusting client extension or MIME header alone).
- * - Explicitly blocks executables and scripts (`MZ` PE, `ELF`, `#!` shebang, `<script`, `<?php`, `.exe`, `.sh`, `.bat`, `.js`).
- * - Strips APP1 (EXIF/XMP) metadata segments from JPEG images and `eXIf`/`tEXt` chunks from PNG images.
- * - Stores files under randomized UUID storage keys behind a clean `FileStorageAdapter` interface.
- * - Supports an optional ClamAV scan hook behind `CLAMAV_ENABLED=true`.
- */
-
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB
 
 const BLOCKED_EXTENSIONS = new Set([
@@ -48,22 +41,16 @@ export function detectMimeByMagicBytes(buf: Buffer): {
     return { safe: false, detectedMime: null, reason: 'File is too small or empty' };
   }
 
-  // 1. Block Windows PE / DOS Executable ("MZ")
   if (buf[0] === 0x4d && buf[1] === 0x5a) {
     return { safe: false, detectedMime: null, reason: 'Blocked executable binary (PE/MZ header)' };
   }
-
-  // 2. Block Linux ELF Executable ("\x7FELF")
   if (buf[0] === 0x7f && buf[1] === 0x45 && buf[2] === 0x4c && buf[3] === 0x46) {
     return { safe: false, detectedMime: null, reason: 'Blocked executable binary (ELF header)' };
   }
-
-  // 3. Block shell scripts ("#!")
   if (buf[0] === 0x23 && buf[1] === 0x21) {
     return { safe: false, detectedMime: null, reason: 'Blocked shell script (shebang header)' };
   }
 
-  // 4. Block HTML / inline script payloads
   const headAscii = buf.subarray(0, Math.min(buf.length, 256)).toString('utf8').toLowerCase();
   if (
     headAscii.includes('<script') ||
@@ -73,8 +60,6 @@ export function detectMimeByMagicBytes(buf: Buffer): {
     return { safe: false, detectedMime: null, reason: 'Blocked active HTML/script payload' };
   }
 
-  // 5. Allow verified safe magic-byte signatures:
-  // PNG: 89 50 4E 47 0D 0A 1A 0A
   if (
     buf.length >= 8 &&
     buf[0] === 0x89 &&
@@ -85,12 +70,10 @@ export function detectMimeByMagicBytes(buf: Buffer): {
     return { safe: true, detectedMime: 'image/png' };
   }
 
-  // JPEG: FF D8 FF
   if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
     return { safe: true, detectedMime: 'image/jpeg' };
   }
 
-  // GIF: "GIF87a" or "GIF89a"
   if (
     buf.length >= 6 &&
     buf[0] === 0x47 &&
@@ -101,7 +84,6 @@ export function detectMimeByMagicBytes(buf: Buffer): {
     return { safe: true, detectedMime: 'image/gif' };
   }
 
-  // WEBP / WAV: "RIFF" .... "WEBP" or "WAVE"
   if (
     buf.length >= 12 &&
     buf[0] === 0x52 &&
@@ -114,7 +96,6 @@ export function detectMimeByMagicBytes(buf: Buffer): {
     if (subFormat === 'WAVE') return { safe: true, detectedMime: 'audio/wav' };
   }
 
-  // PDF: "%PDF-"
   if (
     buf.length >= 5 &&
     buf[0] === 0x25 &&
@@ -126,12 +107,10 @@ export function detectMimeByMagicBytes(buf: Buffer): {
     return { safe: true, detectedMime: 'application/pdf' };
   }
 
-  // WebM / Matroska audio/voice note: 1A 45 DF A3
   if (buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3) {
     return { safe: true, detectedMime: 'audio/webm' };
   }
 
-  // Ogg audio/voice note: "OggS"
   if (buf[0] === 0x4f && buf[1] === 0x67 && buf[2] === 0x67 && buf[3] === 0x53) {
     return { safe: true, detectedMime: 'audio/ogg' };
   }
@@ -143,16 +122,12 @@ export function detectMimeByMagicBytes(buf: Buffer): {
   };
 }
 
-/**
- * Strips EXIF / APP1 metadata segments (`0xFFE1`) from JPEG buffers so GPS coordinates
- * and camera serial numbers are never leaked when sharing images (§5).
- */
 export function stripJpegExif(buf: Buffer): Buffer {
   if (buf.length < 4 || buf[0] !== 0xff || buf[1] !== 0xd8) {
     return buf;
   }
 
-  const chunks: Buffer[] = [buf.subarray(0, 2)]; // SOI marker (FF D8)
+  const chunks: Buffer[] = [buf.subarray(0, 2)];
   let offset = 2;
 
   while (offset + 4 <= buf.length) {
@@ -162,7 +137,6 @@ export function stripJpegExif(buf: Buffer): Buffer {
     }
 
     const marker = buf[offset + 1]!;
-    // SOS (Start of Scan 0xDA) or EOI (0xD9) -> copy remaining compressed image data as-is
     if (marker === 0xda || marker === 0xd9) {
       chunks.push(buf.subarray(offset));
       break;
@@ -174,7 +148,6 @@ export function stripJpegExif(buf: Buffer): Buffer {
       break;
     }
 
-    // Drop APP1 (0xE1 = EXIF/XMP) and APP13 (0xED = IPTC) segments
     if (marker !== 0xe1 && marker !== 0xed) {
       chunks.push(buf.subarray(offset, offset + 2 + segmentLength));
     }
@@ -185,9 +158,80 @@ export function stripJpegExif(buf: Buffer): Buffer {
   return Buffer.concat(chunks);
 }
 
-/**
- * Validates file extension, size, magic bytes, optional ClamAV hook, and strips image EXIF.
- */
+export function stripPngMetadata(buf: Buffer): Buffer {
+  if (
+    buf.length < 8 ||
+    buf[0] !== 0x89 ||
+    buf[1] !== 0x50 ||
+    buf[2] !== 0x4e ||
+    buf[3] !== 0x47
+  ) {
+    return buf;
+  }
+
+  const droppedTypes = new Set(['eXIf', 'tEXt', 'zTXt', 'iTXt']);
+  const chunks: Buffer[] = [buf.subarray(0, 8)];
+  let offset = 8;
+
+  while (offset + 12 <= buf.length) {
+    const dataLength = buf.readUInt32BE(offset);
+    const chunkType = buf.subarray(offset + 4, offset + 8).toString('ascii');
+    const totalChunkLen = 12 + dataLength;
+
+    if (offset + totalChunkLen > buf.length) {
+      chunks.push(buf.subarray(offset));
+      break;
+    }
+
+    if (!droppedTypes.has(chunkType)) {
+      chunks.push(buf.subarray(offset, offset + totalChunkLen));
+    }
+
+    offset += totalChunkLen;
+  }
+
+  return Buffer.concat(chunks);
+}
+
+export function stripWebpMetadata(buf: Buffer): Buffer {
+  if (
+    buf.length < 12 ||
+    buf.subarray(0, 4).toString('ascii') !== 'RIFF' ||
+    buf.subarray(8, 12).toString('ascii') !== 'WEBP'
+  ) {
+    return buf;
+  }
+
+  const keptSubChunks: Buffer[] = [];
+  let offset = 12;
+
+  while (offset + 8 <= buf.length) {
+    const fourCC = buf.subarray(offset, offset + 4).toString('ascii');
+    const chunkSize = buf.readUInt32LE(offset + 4);
+    const paddedSize = chunkSize + (chunkSize % 2);
+    const totalLen = 8 + paddedSize;
+
+    if (offset + totalLen > buf.length) {
+      keptSubChunks.push(buf.subarray(offset));
+      break;
+    }
+
+    if (fourCC !== 'EXIF' && fourCC !== 'XMP ') {
+      keptSubChunks.push(buf.subarray(offset, offset + totalLen));
+    }
+
+    offset += totalLen;
+  }
+
+  const body = Buffer.concat(keptSubChunks);
+  const header = Buffer.alloc(12);
+  header.write('RIFF', 0, 'ascii');
+  header.writeUInt32LE(4 + body.length, 4);
+  header.write('WEBP', 8, 'ascii');
+
+  return Buffer.concat([header, body]);
+}
+
 export async function validateAndSanitizeUpload(params: {
   fileName: string;
   claimedMimeType: string;
@@ -223,7 +267,6 @@ export async function validateAndSanitizeUpload(params: {
     };
   }
 
-  // Optional ClamAV Antivirus Hook behind env flag (`CLAMAV_ENABLED=true`)
   if (process.env.CLAMAV_ENABLED === 'true') {
     const eicarSignature = 'X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*';
     if (rawBuffer.toString('utf8').includes(eicarSignature)) {
@@ -237,7 +280,6 @@ export async function validateAndSanitizeUpload(params: {
     }
   }
 
-  // If E2EE client-side encryption is enabled on the attachment, store as opaque ciphertext blob
   if (isEncrypted) {
     const randomKey = `${crypto.randomUUID()}.enc`;
     return {
@@ -259,8 +301,14 @@ export async function validateAndSanitizeUpload(params: {
     };
   }
 
-  const sanitizedBuffer =
-    magicCheck.detectedMime === 'image/jpeg' ? stripJpegExif(rawBuffer) : rawBuffer;
+  let sanitizedBuffer = rawBuffer;
+  if (magicCheck.detectedMime === 'image/jpeg') {
+    sanitizedBuffer = stripJpegExif(rawBuffer);
+  } else if (magicCheck.detectedMime === 'image/png') {
+    sanitizedBuffer = stripPngMetadata(rawBuffer);
+  } else if (magicCheck.detectedMime === 'image/webp') {
+    sanitizedBuffer = stripWebpMetadata(rawBuffer);
+  }
 
   const safeExtMap: Record<string, string> = {
     'image/png': '.png',
@@ -284,17 +332,13 @@ export async function validateAndSanitizeUpload(params: {
   };
 }
 
-// ============================================================================
-// Pluggable File Storage Abstraction (Local Disk Default; S3/Supabase Swappable)
-// ============================================================================
-
 export interface FileStorageAdapter {
   save(storageKey: string, data: Buffer): Promise<void>;
   read(storageKey: string): Promise<Buffer>;
 }
 
 class LocalDiskStorageAdapter implements FileStorageAdapter {
-  private readonly baseDir = path.resolve(process.cwd(), 'uploads');
+  private readonly baseDir = path.resolve(__dirname, '../../uploads');
 
   public async save(storageKey: string, data: Buffer): Promise<void> {
     await fs.mkdir(this.baseDir, { recursive: true });

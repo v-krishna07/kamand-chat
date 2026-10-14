@@ -1,8 +1,11 @@
 import React, { useEffect } from 'react';
+import { LayoutGroup } from 'motion/react';
 import { useAuthStore } from './store/useAuthStore.js';
 import { useChatStore } from './store/useChatStore.js';
 import { AuthPage } from './pages/AuthPage.js';
 import { MessengerPage } from './pages/MessengerPage.js';
+import { MotionProvider } from './motion/MotionProvider.js';
+import { BootScreen } from './motion/BootScreen.js';
 
 export const App: React.FC = () => {
   const { user, isLoading, hydrateSession, logout } = useAuthStore();
@@ -12,28 +15,23 @@ export const App: React.FC = () => {
     void hydrateSession();
   }, [hydrateSession]);
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen w-full bg-slate-950 flex items-center justify-center text-slate-400 text-sm">
-        <div className="flex items-center gap-3">
-          <span className="w-2.5 h-2.5 rounded-full bg-sky-400 animate-ping" />
-          <span>Restoring session…</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return <AuthPage />;
-  }
-
   return (
-    <MessengerPage
-      currentUser={user}
-      onLogout={async () => {
-        resetChat();
-        await logout();
-      }}
-    />
+    <MotionProvider>
+      <LayoutGroup>
+        {isLoading ? (
+          <BootScreen subtitle="Restoring encrypted Kamand session…" />
+        ) : !user ? (
+          <AuthPage />
+        ) : (
+          <MessengerPage
+            currentUser={user}
+            onLogout={async () => {
+              resetChat();
+              await logout();
+            }}
+          />
+        )}
+      </LayoutGroup>
+    </MotionProvider>
   );
 };

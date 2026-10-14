@@ -1,9 +1,3 @@
-/**
- * High-Performance Viewport Windowing Engine for 10,000+ Chat Messages (Section 15 & Section 16.5)
- * Computes the visible `[startIndex, endIndex]` slice + top/bottom spacer heights so only
- * ~30 DOM nodes are mounted at any instant regardless of conversation history size.
- */
-
 export interface VirtualWindowResult<T> {
   visibleItems: T[];
   startIndex: number;
@@ -13,12 +7,13 @@ export interface VirtualWindowResult<T> {
   totalHeightPx: number;
 }
 
-export function computeVirtualMessageWindow<T>(params: {
+export function computeVirtualMessageWindow<T extends { id?: string }>(params: {
   items: T[];
   scrollTopPx: number;
   viewportHeightPx: number;
   estimatedRowHeightPx?: number;
   overscanCount?: number;
+  measuredHeights?: Record<string, number>;
 }): VirtualWindowResult<T> {
   const {
     items,
@@ -26,11 +21,10 @@ export function computeVirtualMessageWindow<T>(params: {
     viewportHeightPx,
     estimatedRowHeightPx = 68,
     overscanCount = 8,
+    measuredHeights,
   } = params;
 
   const totalCount = items.length;
-  const totalHeightPx = totalCount * estimatedRowHeightPx;
-
   if (totalCount === 0) {
     return {
       visibleItems: [],
@@ -42,7 +36,17 @@ export function computeVirtualMessageWindow<T>(params: {
     };
   }
 
-  // For short conversations (<= 60 messages), render all items directly with zero spacer overhead
+  // Build prefix-sum height table supporting variable-height measured bubbles (Fixes Bug 15)
+  const prefixOffsets = new Array<number>(totalCount + 1);
+  prefixOffsets[0] = 0;
+  for (let i = 0; i < totalCount; i++) {
+    const id = items[i]?.id;
+    const h = (id && measuredHeights?.[id]) || estimatedRowHeightPx;
+    prefixOffsets[i + 1] = prefixOffsets[i]! + h;
+  }
+
+  const totalHeightPx = prefixOffsets[totalCount]!;
+
   if (totalCount <= 60) {
     return {
       visibleItems: items,
@@ -54,14 +58,24 @@ export function computeVirtualMessageWindow<T>(params: {
     };
   }
 
-  const rawStart = Math.floor(Math.max(0, scrollTopPx) / estimatedRowHeightPx);
-  const visibleCount = Math.ceil(Math.max(1, viewportHeightPx) / estimatedRowHeightPx);
+  const clampedScrollTop = Math.max(0, scrollTopPx);
+  const viewportBottom = clampedScrollTop + Math.max(1, viewportHeightPx);
+
+  let rawStart = 0;
+  while (rawStart < totalCount - 1 && prefixOffsets[rawStart + 1]! < clampedScrollTop) {
+    rawStart++;
+  }
+
+  let rawEnd = rawStart;
+  while (rawEnd < totalCount - 1 && prefixOffsets[rawEnd]! < viewportBottom) {
+    rawEnd++;
+  }
 
   const startIndex = Math.max(0, rawStart - overscanCount);
-  const endIndex = Math.min(totalCount - 1, rawStart + visibleCount + overscanCount);
+  const endIndex = Math.min(totalCount - 1, rawEnd + overscanCount);
 
-  const topSpacerPx = startIndex * estimatedRowHeightPx;
-  const bottomSpacerPx = Math.max(0, (totalCount - 1 - endIndex) * estimatedRowHeightPx);
+  const topSpacerPx = prefixOffsets[startIndex]!;
+  const bottomSpacerPx = Math.max(0, totalHeightPx - prefixOffsets[endIndex + 1]!);
 
   return {
     visibleItems: items.slice(startIndex, endIndex + 1),

@@ -952,10 +952,57 @@ export const ConnectorHealthDTO_Schema = z.object({
 });
 export type ConnectorHealthDTO = z.infer<typeof ConnectorHealthDTO_Schema>;
 
+const DAY_NORMALIZATION_MAP: Record<string, 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri' | 'Sat' | 'Sun'> = {
+  mon: 'Mon',
+  monday: 'Mon',
+  tue: 'Tue',
+  tues: 'Tue',
+  tuesday: 'Tue',
+  wed: 'Wed',
+  wednesday: 'Wed',
+  thu: 'Thu',
+  thur: 'Thu',
+  thurs: 'Thu',
+  thursday: 'Thu',
+  fri: 'Fri',
+  friday: 'Fri',
+  sat: 'Sat',
+  saturday: 'Sat',
+  sun: 'Sun',
+  sunday: 'Sun',
+};
+
+export const CanonicalDayOfWeekSchema = z
+  .string()
+  .trim()
+  .transform((val, ctx) => {
+    const mapped = DAY_NORMALIZATION_MAP[val.toLowerCase()];
+    if (!mapped) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Invalid day of week. Use Mon..Sun or Monday..Sunday.',
+      });
+      return z.NEVER;
+    }
+    return mapped;
+  });
+
+export type CanonicalDayOfWeek = z.infer<typeof CanonicalDayOfWeekSchema>;
+
+export const MessHallIdSchema = z.enum([
+  'Pine Mess',
+  'Oak Mess',
+  'Cedar Mess',
+  'Alder Mess',
+  'Maple Mess',
+  'Peepal Mess',
+]);
+export type MessHallId = z.infer<typeof MessHallIdSchema>;
+
 export const TimetableSlotInputSchema = z.object({
   courseCode: z.string().trim().min(2).max(20).transform((v) => v.toUpperCase()),
   courseTitle: z.string().trim().min(2).max(100),
-  dayOfWeek: z.enum(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']),
+  dayOfWeek: CanonicalDayOfWeekSchema,
   startTime: z.string().regex(/^\d{2}:\d{2}$/, 'Use HH:MM 24h format'),
   endTime: z.string().regex(/^\d{2}:\d{2}$/, 'Use HH:MM 24h format'),
   roomCode: z.string().trim().min(1).max(30).transform((v) => v.toUpperCase()),
@@ -1134,8 +1181,8 @@ export const TimetableSlotDTO_Schema = z.object({
 export type TimetableSlotDTO = z.infer<typeof TimetableSlotDTO_Schema>;
 
 export const FreeSlotQuerySchema = z.object({
-  userIds: z.array(z.string().uuid()).min(1).max(20),
-  dayOfWeek: z.enum(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']),
+  dayOfWeek: CanonicalDayOfWeekSchema.default('Wed'),
+  userIds: z.array(z.string().uuid()).min(1).max(20).optional(),
   windowStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default('08:00'),
   windowEnd: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default('18:00'),
   minDurationMins: z.number().int().min(15).max(480).default(30),
