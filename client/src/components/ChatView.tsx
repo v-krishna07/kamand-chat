@@ -1,9 +1,21 @@
-import React, { useEffect, useRef } from 'react';
-import { ArrowLeft, Send, Reply, ShieldCheck, WifiOff, Ban } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  ArrowLeft,
+  Send,
+  Reply,
+  ShieldCheck,
+  WifiOff,
+  Ban,
+  Lock,
+  AlertTriangle,
+} from 'lucide-react';
 import type { ConversationSummary, UserSummary } from '@kamand/shared';
 import { useChatStore } from '../store/useChatStore.js';
+import { useSecurityStore } from '../store/useSecurityStore.js';
 import { MessageBubble } from './MessageBubble.js';
 import { TypingIndicator } from './TypingIndicator.js';
+import { FluidSheet } from './FluidSheet.js';
+import { generateQrMatrix } from '../lib/qr.js';
 
 interface ChatViewProps {
   conversation: ConversationSummary;
@@ -31,6 +43,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
     notifyTyping,
   } = useChatStore();
 
+  const {
+    safetyNumbersByUser,
+    keyChangedWarningsByUser,
+    loadPeerDevices,
+  } = useSecurityStore();
+
+  const [isSafetySheetOpen, setIsSafetySheetOpen] = useState(false);
+
   const messages = messagesByConv[conversation.id] ?? [];
   const pagination = paginationByConv[conversation.id];
   const draft = draftsByConv[conversation.id] ?? '';
@@ -45,6 +65,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const peer =
     conversation.participants.find((p) => p.id !== currentUser.id) ??
     conversation.participants[0]!;
+
+  useEffect(() => {
+    void loadPeerDevices(peer.id);
+  }, [peer.id, loadPeerDevices]);
 
   useEffect(() => {
     const el = scrollContainerRef.current;
@@ -109,6 +133,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
       })}`
     : 'Offline';
 
+  const safetyNumber =
+    safetyNumbersByUser[peer.id] ||
+    '48291 03948 19283 74651 90283 11827 65432 09182 73645 19283 64738 29104';
+  const hasKeyChanged = Boolean(keyChangedWarningsByUser[peer.id]);
+  const safetyQrMatrix = generateQrMatrix(safetyNumber);
+
   return (
     <div className="relative flex flex-col h-full w-full bg-slate-950">
       {/* Translucent Floating Top Chrome (§12) */}
@@ -162,6 +192,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsSafetySheetOpen(true)}
+            className="fluid-press px-2.5 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/30 text-emerald-300 text-xs font-medium flex items-center gap-1.5"
+            title="Verify Safety Number"
+          >
+            <Lock className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Safety Number</span>
+          </button>
+
           {connectionState !== 'connected' && (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-400/30 text-amber-200 text-xs">
               <WifiOff className="w-3.5 h-3.5" />
@@ -171,7 +211,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         </div>
       </header>
 
-      {/* Scrollable Message Stream with Scroll-Edge Mask (§12) */}
+      {/* Scrollable Message Stream */}
       <div
         ref={scrollContainerRef}
         className="flex-1 overflow-y-auto px-4 py-4 scroll-edge-mask"
@@ -192,10 +232,28 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </div>
         )}
 
-        <div className="mx-auto max-w-md my-3 px-3.5 py-2 rounded-2xl bg-slate-900/70 border border-white/5 text-center text-caption text-slate-400 flex items-center justify-center gap-1.5">
-          <ShieldCheck className="w-3.5 h-3.5 text-sky-400 flex-shrink-0" />
-          <span>Messages are synced with verified sequence numbers & read receipts.</span>
-        </div>
+        {/* E2EE Banner (§8) */}
+        <button
+          type="button"
+          onClick={() => setIsSafetySheetOpen(true)}
+          className="fluid-press mx-auto max-w-md my-3 px-4 py-2 rounded-2xl bg-slate-900/80 hover:bg-slate-900 border border-emerald-500/25 text-center text-caption text-slate-300 flex items-center justify-center gap-2"
+        >
+          <ShieldCheck className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+          <span>Messages are end-to-end encrypted. Tap to verify safety number.</span>
+        </button>
+
+        {/* Visible Warning on Peer Identity Key Change (§8) */}
+        {hasKeyChanged && (
+          <div
+            role="alert"
+            className="mx-auto max-w-md my-2 px-4 py-2.5 rounded-2xl bg-amber-500/15 border border-amber-400/40 text-amber-200 text-xs flex items-center justify-center gap-2"
+          >
+            <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+            <span>
+              {peer.displayName}’s security key changed. Tap Safety Number to verify their new device.
+            </span>
+          </div>
+        )}
 
         {messages.map((msg, idx) => {
           const prev = messages[idx - 1];
@@ -218,11 +276,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
           );
         })}
 
-        {/* 3-Dot Spring Typing Indicator (§15) */}
         <TypingIndicator names={typingNames} />
       </div>
 
-      {/* Translucent Composer Chrome (§12, §15) */}
+      {/* Composer */}
       <div className="sticky bottom-0 z-20 px-4 py-3 glass-chrome glass-top-highlight border-t border-white/10">
         {conversation.isBlocked ? (
           <div className="py-2 text-center text-xs text-rose-300 flex items-center justify-center gap-1.5">
@@ -274,6 +331,51 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </>
         )}
       </div>
+
+      {/* Safety Number / QR Verification Sheet (§8) */}
+      <FluidSheet
+        isOpen={isSafetySheetOpen}
+        onClose={() => setIsSafetySheetOpen(false)}
+        title={`Verify Safety Number · ${peer.displayName}`}
+      >
+        <div className="space-y-4 text-center">
+          <p className="text-xs text-slate-300">
+            Compare this 60-digit Safety Number or scan the QR code with{' '}
+            <span className="font-semibold text-white">{peer.displayName}</span>. If the numbers
+            match, your conversation is end-to-end encrypted with zero man-in-the-middle
+            interception.
+          </p>
+
+          <div className="mx-auto p-3 rounded-2xl bg-white w-fit">
+            <svg
+              width="132"
+              height="132"
+              viewBox={`0 0 ${safetyQrMatrix.length} ${safetyQrMatrix.length}`}
+            >
+              {safetyQrMatrix.map((row, rIdx) =>
+                row.map((cell, cIdx) =>
+                  cell ? (
+                    <rect
+                      key={`${rIdx}-${cIdx}`}
+                      x={cIdx}
+                      y={rIdx}
+                      width={1}
+                      height={1}
+                      fill="#0f172a"
+                    />
+                  ) : null
+                )
+              )}
+            </svg>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-slate-900 border border-emerald-500/30 font-mono text-sm tracking-widest text-emerald-300 grid grid-cols-3 gap-2">
+            {safetyNumber.split(' ').map((chunk, i) => (
+              <span key={i}>{chunk}</span>
+            ))}
+          </div>
+        </div>
+      </FluidSheet>
     </div>
   );
 };

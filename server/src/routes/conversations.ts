@@ -23,6 +23,7 @@ export function formatMessageDTO(msg: {
   type: string;
   replyToId: string | null;
   threadRootId?: string | null;
+  senderKeyGeneration?: number | null;
   seq: number;
   status: string;
   editedAt: Date | null;
@@ -56,6 +57,7 @@ export function formatMessageDTO(msg: {
     body: msg.deletedAt ? 'This message was deleted' : msg.body,
     ciphertext: msg.ciphertext,
     nonce: msg.nonce,
+    senderKeyGeneration: msg.senderKeyGeneration ?? null,
     type: (msg.type as MessageDTO['type']) || 'text',
     replyToId: msg.replyToId,
     replyToPreview: msg.replyTo

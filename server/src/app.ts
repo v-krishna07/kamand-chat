@@ -10,6 +10,8 @@ import { contactsRouter } from './routes/contacts.js';
 import { profileRouter } from './routes/profile.js';
 import { statusesRouter } from './routes/statuses.js';
 import { communitiesRouter } from './routes/communities.js';
+import { keysRouter } from './routes/keys.js';
+import { faceRouter } from './routes/face.js';
 import { createRateLimitMiddleware, apiRateLimiter } from './security/rateLimit.js';
 
 export function createApp() {
@@ -54,6 +56,8 @@ export function createApp() {
   });
 
   app.use('/api/auth', authRouter);
+  app.use('/api/keys', keysRouter);
+  app.use('/api/face', faceRouter);
   app.use('/api/users', usersRouter);
   app.use('/api/profile', profileRouter);
   app.use('/api/contacts', contactsRouter);

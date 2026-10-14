@@ -45,6 +45,12 @@ export const LoginInputSchema = z.object({
   password: z.string().min(1, 'Password is required').max(128),
 });
 
+export const GoogleLoginInputSchema = z.object({
+  idToken: z.string().min(10, 'Google ID token is required'),
+});
+
+export type GoogleLoginInput = z.infer<typeof GoogleLoginInputSchema>;
+
 export const UserSummarySchema = z.object({
   id: z.string(),
   username: z.string(),
@@ -65,7 +71,90 @@ export type LoginInput = z.infer<typeof LoginInputSchema>;
 export type UserSummary = z.infer<typeof UserSummarySchema>;
 
 // ============================================================================
-// 2. Profile & Contact Schemas (Phase 2)
+// 2. Session, Device, E2EE Key & Face Auth Schemas (Phase 4)
+// ============================================================================
+
+export const SessionDTO_Schema = z.object({
+  id: z.string().uuid(),
+  userAgent: z.string().nullable(),
+  ipAddress: z.string().nullable(),
+  createdAt: z.string(),
+  lastUsedAt: z.string(),
+  expiresAt: z.string(),
+  isCurrent: z.boolean(),
+});
+
+export type SessionDTO = z.infer<typeof SessionDTO_Schema>;
+
+export const RegisterDeviceKeyInputSchema = z.object({
+  deviceId: z.string().uuid().optional(),
+  deviceName: z.string().trim().min(1).max(80),
+  identityPublicKey: z.string().min(16).max(2048), // JWK/Base64 ECDH public key
+  signingPublicKey: z.string().min(16).max(2048),  // JWK/Base64 ECDSA public key
+  wrappedPrivateKeyBackup: z.string().max(8192).nullable().optional(),
+  backupSalt: z.string().max(256).nullable().optional(),
+  backupIv: z.string().max(256).nullable().optional(),
+});
+
+export type RegisterDeviceKeyInput = z.infer<typeof RegisterDeviceKeyInputSchema>;
+
+export const DeviceDTO_Schema = z.object({
+  id: z.string().uuid(),
+  userId: z.string().uuid(),
+  deviceName: z.string(),
+  identityPublicKey: z.string(),
+  signingPublicKey: z.string(),
+  keyFingerprint: z.string(),
+  createdAt: z.string(),
+});
+
+export type DeviceDTO = z.infer<typeof DeviceDTO_Schema>;
+
+export const DistributeSenderKeyInputSchema = z.object({
+  conversationId: z.string().uuid(),
+  generation: z.number().int().positive(),
+  envelopes: z
+    .array(
+      z.object({
+        recipientUserId: z.string().uuid(),
+        wrappedSenderKey: z.string().min(16).max(4096),
+        nonce: z.string().min(8).max(256),
+      })
+    )
+    .min(1),
+});
+
+export type DistributeSenderKeyInput = z.infer<typeof DistributeSenderKeyInputSchema>;
+
+export const FaceEnrollInputSchema = z.object({
+  deviceId: z.string().uuid(),
+  deviceName: z.string().trim().min(1).max(80),
+  encryptedEmbedding: z.string().min(16).max(16384),
+  embeddingIv: z.string().min(8).max(256),
+  faceSigningPublicKey: z.string().min(16).max(2048), // SPKI/JWK ECDSA P-256 public key
+});
+
+export type FaceEnrollInput = z.infer<typeof FaceEnrollInputSchema>;
+
+export const FaceChallengeRequestSchema = z.object({
+  identifier: z.string().trim().min(1).max(120),
+  deviceId: z.string().uuid(),
+});
+
+export type FaceChallengeRequest = z.infer<typeof FaceChallengeRequestSchema>;
+
+export const FaceVerifyLoginInputSchema = z.object({
+  challengeId: z.string().uuid(),
+  deviceId: z.string().uuid(),
+  livenessGesture: z.enum(['blink', 'turn_left', 'turn_right']),
+  embeddingDistance: z.number().nonnegative(),
+  signatureBase64: z.string().min(16).max(1024),
+});
+
+export type FaceVerifyLoginInput = z.infer<typeof FaceVerifyLoginInputSchema>;
+
+// ============================================================================
+// 3. Profile & Contact Schemas (Phase 2)
 // ============================================================================
 
 export const UpdateProfileInputSchema = z.object({
@@ -131,7 +220,7 @@ export const ContactDTO_Schema = z.object({
 export type ContactDTO = z.infer<typeof ContactDTO_Schema>;
 
 // ============================================================================
-// 3. Status / Stories Schemas (Phase 2)
+// 4. Status / Stories Schemas (Phase 2)
 // ============================================================================
 
 export const CreateStatusInputSchema = z.object({
@@ -185,7 +274,7 @@ export const StatusDTO_Schema = z.object({
 export type StatusDTO = z.infer<typeof StatusDTO_Schema>;
 
 // ============================================================================
-// 4. Conversation & Message Schemas (Phase 1–3)
+// 5. Conversation & Message Schemas (Phase 1–4)
 // ============================================================================
 
 export const CreateDirectConversationSchema = z.object({
@@ -207,6 +296,7 @@ export const MessageDTO_Schema = z.object({
   body: z.string(),
   ciphertext: z.string().nullable(),
   nonce: z.string().nullable(),
+  senderKeyGeneration: z.number().int().positive().nullable().optional(),
   type: MessageTypeSchema,
   replyToId: z.string().uuid().nullable(),
   replyToPreview: z
@@ -259,7 +349,7 @@ export const CursorPaginationQuerySchema = z.object({
 });
 
 // ============================================================================
-// 5. Structured Communities, Categories, Channels & Roles (Phase 3)
+// 6. Structured Communities, Categories, Channels & Roles (Phase 3)
 // ============================================================================
 
 export const CommunityRoleSchema = z.enum([
@@ -454,23 +544,25 @@ export const JoinRequestDTO_Schema = z.object({
 export type JoinRequestDTO = z.infer<typeof JoinRequestDTO_Schema>;
 
 // ============================================================================
-// 6. WebSocket Event Payloads & Acknowledgements
+// 7. WebSocket Event Payloads & Acknowledgements
 // ============================================================================
 
-export const WsSendMessagePayloadSchema = z.object({
-  id: z.string().uuid('Client message ID must be a valid UUID v4'),
-  conversationId: z.string().uuid('Invalid conversation ID'),
-  body: z
-    .string()
-    .trim()
-    .min(1, 'Message cannot be empty')
-    .max(4000, 'Message cannot exceed 4000 characters'),
-  ciphertext: z.string().max(16000).nullable().optional(),
-  nonce: z.string().max(256).nullable().optional(),
-  type: MessageTypeSchema.default('text'),
-  replyToId: z.string().uuid().nullable().optional(),
-  threadRootId: z.string().uuid().nullable().optional(),
-});
+export const WsSendMessagePayloadSchema = z
+  .object({
+    id: z.string().uuid('Client message ID must be a valid UUID v4'),
+    conversationId: z.string().uuid('Invalid conversation ID'),
+    body: z.string().trim().max(4000, 'Message cannot exceed 4000 characters').default(''),
+    ciphertext: z.string().max(16000).nullable().optional(),
+    nonce: z.string().max(256).nullable().optional(),
+    senderKeyGeneration: z.number().int().positive().nullable().optional(),
+    type: MessageTypeSchema.default('text'),
+    replyToId: z.string().uuid().nullable().optional(),
+    threadRootId: z.string().uuid().nullable().optional(),
+  })
+  .refine(
+    (data) => data.body.length > 0 || (Boolean(data.ciphertext) && Boolean(data.nonce)),
+    'Message must contain either a body or E2EE ciphertext + nonce'
+  );
 
 export type WsSendMessagePayload = z.infer<typeof WsSendMessagePayloadSchema>;
 

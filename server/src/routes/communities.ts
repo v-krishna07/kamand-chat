@@ -22,7 +22,7 @@ import { prisma } from '../db.js';
 import { requireAuth, toUserSummary } from '../middleware/auth.js';
 import { csrfProtection } from '../security/csrf.js';
 import { formatMessageDTO } from './conversations.js';
-import { isUserOnline, joinUserSocketsToConversation } from '../ws/socketServer.js';
+import { isUserOnline, joinUserSocketsToConversation, emitToUser } from '../ws/socketServer.js';
 import { getAcceptedContactIds } from './contacts.js';
 
 export const communitiesRouter = Router();
@@ -668,6 +668,73 @@ communitiesRouter.patch(
       });
 
       res.status(200).json({ ok: true, role: updated.role });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// Remove a Member from Community & Rotate Group Sender Key Generation (§8)
+communitiesRouter.delete(
+  '/:id/members/:targetUserId',
+  requireAuth,
+  csrfProtection,
+  async (req, res, next) => {
+    try {
+      const communityId = req.params.id;
+      const { targetUserId } = req.params;
+      const actorId = req.authUser!.id;
+
+      const actorMember = await prisma.communityMember.findUnique({
+        where: { communityId_userId: { communityId, userId: actorId } },
+      });
+      if (!actorMember || !MODERATOR_ROLES.has(actorMember.role)) {
+        res.status(403).json({ error: 'Insufficient permissions to remove member.' });
+        return;
+      }
+
+      const channels = await prisma.channel.findMany({
+        where: { communityId },
+        select: { conversationId: true },
+      });
+      const convIds = channels.map((c) => c.conversationId);
+
+      await prisma.$transaction(async (tx) => {
+        await tx.communityMember.deleteMany({
+          where: { communityId, userId: targetUserId },
+        });
+        await tx.membership.deleteMany({
+          where: {
+            conversationId: { in: convIds },
+            userId: targetUserId,
+          },
+        });
+        // Purge removed member's sender keys and increment senderKeyGeneration on every channel conversation
+        await tx.groupSenderKey.deleteMany({
+          where: {
+            conversationId: { in: convIds },
+            OR: [{ senderId: targetUserId }, { recipientId: targetUserId }],
+          },
+        });
+        await tx.conversation.updateMany({
+          where: { id: { in: convIds } },
+          data: { senderKeyGeneration: { increment: 1 } },
+        });
+      });
+
+      const remainingMembers = await prisma.communityMember.findMany({
+        where: { communityId },
+        select: { userId: true },
+      });
+      for (const m of remainingMembers) {
+        emitToUser(m.userId, 'e2ee:rotate-sender-keys', {
+          communityId,
+          removedUserId: targetUserId,
+          conversationIds: convIds,
+        });
+      }
+
+      res.status(200).json({ ok: true, rotatedConversations: convIds.length });
     } catch (err) {
       next(err);
     }

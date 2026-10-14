@@ -178,8 +178,17 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
           return;
         }
 
-        const { id, conversationId, body, ciphertext, nonce, type, replyToId, threadRootId } =
-          parsed.data;
+        const {
+          id,
+          conversationId,
+          body,
+          ciphertext,
+          nonce,
+          senderKeyGeneration,
+          type,
+          replyToId,
+          threadRootId,
+        } = parsed.data;
 
         const convWithMembers = await prisma.conversation.findUnique({
           where: { id: conversationId },
@@ -289,6 +298,11 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
           }
         }
 
+        // Section 8 E2EE Rule: When `ciphertext` and `nonce` are provided, the server stores ONLY
+        // `[E2EE]` in `body` so a database dump never contains plaintext.
+        const isEncrypted = Boolean(ciphertext && nonce);
+        const persistedBody = isEncrypted ? '[E2EE]' : body;
+
         const createdMessage = await prisma.$transaction(async (tx) => {
           const updatedConv = await tx.conversation.update({
             where: { id: conversationId },
@@ -305,9 +319,10 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
               id,
               conversationId,
               senderId: userId,
-              body,
+              body: persistedBody,
               ciphertext: ciphertext ?? null,
               nonce: nonce ?? null,
+              senderKeyGeneration: senderKeyGeneration ?? null,
               type,
               replyToId: replyToId ?? null,
               threadRootId: threadRootId ?? null,

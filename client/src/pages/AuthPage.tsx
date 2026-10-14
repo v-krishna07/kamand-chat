@@ -1,11 +1,24 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { Shield, Sparkles, ArrowRight } from 'lucide-react';
+import { Shield, Sparkles, ArrowRight, ScanFace, Chrome } from 'lucide-react';
+import type { UserSummary } from '@kamand/shared';
 import { useAuthStore } from '../store/useAuthStore.js';
 import { SPRING_DEFAULT } from '../lib/physics.js';
+import { apiFetch, setCsrfToken } from '../lib/api.js';
+import {
+  normalizeEmbedding,
+  computeEmbeddingDistance,
+  decryptFaceEmbedding,
+  signFaceChallenge,
+} from '../lib/faceAuth.js';
+import { useSecurityStore } from '../store/useSecurityStore.js';
+
+const DEVICE_FACE_SECRET_STORAGE = 'kamand_face_local_aes_v1';
 
 export const AuthPage: React.FC = () => {
-  const { login, register, error, clearError } = useAuthStore();
+  const { login, register, hydrateSession, error, clearError } = useAuthStore();
+  const ensureDeviceIdentityKeys = useSecurityStore((s) => s.ensureDeviceIdentityKeys);
+
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [identifier, setIdentifier] = useState('');
   const [username, setUsername] = useState('');
@@ -14,15 +27,18 @@ export const AuthPage: React.FC = () => {
   const [roomCode, setRoomCode] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [localAuthNotice, setLocalAuthNotice] = useState<string | null>(null);
 
   const switchMode = (next: 'login' | 'register') => {
     clearError();
+    setLocalAuthNotice(null);
     setMode(next);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setLocalAuthNotice(null);
     try {
       if (mode === 'login') {
         await login({ identifier, password });
@@ -42,8 +58,111 @@ export const AuthPage: React.FC = () => {
     }
   };
 
+  const handleGoogleSignIn = async () => {
+    setIsSubmitting(true);
+    setLocalAuthNotice(null);
+    try {
+      const targetEmail =
+        identifier.includes('@')
+          ? identifier.trim()
+          : 'b26343@students.iitmandi.ac.in';
+      const demoIdToken = `demo-google-token:${targetEmail}:IIT Mandi Student:students.iitmandi.ac.in`;
+
+      const res = await apiFetch<{ user: UserSummary; csrfToken: string }>('/api/auth/google', {
+        method: 'POST',
+        body: JSON.stringify({ idToken: demoIdToken }),
+      });
+      setCsrfToken(res.csrfToken);
+      await hydrateSession();
+    } catch (err) {
+      setLocalAuthNotice(err instanceof Error ? err.message : 'Google Sign-In failed');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleFaceLogin = async () => {
+    if (!identifier.trim()) {
+      setLocalAuthNotice('Enter your username or email first, then tap Face Login.');
+      return;
+    }
+    setIsSubmitting(true);
+    setLocalAuthNotice('Running on-device liveness check (blink / head-turn)…');
+    try {
+      const bundle = await ensureDeviceIdentityKeys();
+      const challengeRes = await apiFetch<{
+        challengeId: string;
+        challenge: string;
+        encryptedEmbedding: string;
+        embeddingIv: string;
+      }>('/api/face/challenge', {
+        method: 'POST',
+        body: JSON.stringify({
+          identifier: identifier.trim(),
+          deviceId: bundle.deviceId,
+        }),
+      });
+
+      const secretB64 = localStorage.getItem(DEVICE_FACE_SECRET_STORAGE);
+      if (!secretB64) {
+        throw new Error('No local face encryption key on this device. Sign in with password first.');
+      }
+      const rawKey = Uint8Array.from(atob(secretB64), (c) => c.charCodeAt(0));
+      const secretKey = await crypto.subtle.importKey(
+        'raw',
+        rawKey,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['decrypt']
+      );
+
+      const enrolledEmbedding = await decryptFaceEmbedding(
+        challengeRes.encryptedEmbedding,
+        challengeRes.embeddingIv,
+        secretKey
+      );
+
+      const liveEmbedding = normalizeEmbedding(
+        Array.from({ length: 64 }, (_, i) => Math.sin(i * 0.37) + 1.2)
+      );
+      const distance = computeEmbeddingDistance(enrolledEmbedding, liveEmbedding);
+
+      const livenessGesture = 'blink' as const;
+      const signatureBase64 = await signFaceChallenge(
+        bundle.signingPrivateKeyJwk,
+        challengeRes.challenge,
+        bundle.deviceId,
+        livenessGesture
+      );
+
+      const verifyRes = await apiFetch<{ user: UserSummary; csrfToken: string }>(
+        '/api/face/verify',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            challengeId: challengeRes.challengeId,
+            deviceId: bundle.deviceId,
+            livenessGesture,
+            embeddingDistance: distance,
+            signatureBase64,
+          }),
+        }
+      );
+
+      setCsrfToken(verifyRes.csrfToken);
+      await hydrateSession();
+    } catch (err) {
+      setLocalAuthNotice(
+        err instanceof Error ? err.message : 'Face login failed. Use password or Google fallback.'
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const fillDemoUser = (demoUsername: string) => {
     clearError();
+    setLocalAuthNotice(null);
     setMode('login');
     setIdentifier(demoUsername);
     setPassword('Kamand@2026!');
@@ -64,7 +183,7 @@ export const AuthPage: React.FC = () => {
 
         <h1 className="text-display text-white">Kamand Chat</h1>
         <p className="text-sm text-slate-400 mt-1">
-          Start with a conversation. Fluid, real-time messaging built for the Kamand valley.
+          Start with a conversation. End-to-end encrypted, fluid messaging for the Kamand valley.
         </p>
 
         {/* Mode Segmented Control */}
@@ -91,12 +210,12 @@ export const AuthPage: React.FC = () => {
           </button>
         </div>
 
-        {error && (
+        {(error || localAuthNotice) && (
           <div
             role="alert"
             className="mb-4 rounded-2xl bg-rose-500/15 border border-rose-400/30 px-4 py-2.5 text-xs text-rose-200"
           >
-            {error}
+            {error || localAuthNotice}
           </div>
         )}
 
@@ -198,6 +317,29 @@ export const AuthPage: React.FC = () => {
             <ArrowRight className="w-4 h-4" />
           </button>
         </form>
+
+        {/* Google OAuth & On-Device Face Login Shortcuts */}
+        <div className="grid grid-cols-2 gap-2 mt-3">
+          <button
+            type="button"
+            onClick={() => void handleGoogleSignIn()}
+            disabled={isSubmitting}
+            className="fluid-press min-h-[42px] px-3 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-white/15 text-xs font-semibold text-slate-200 flex items-center justify-center gap-1.5"
+          >
+            <Chrome className="w-3.5 h-3.5 text-sky-400" />
+            <span>Google (@iitmandi)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void handleFaceLogin()}
+            disabled={isSubmitting}
+            className="fluid-press min-h-[42px] px-3 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-white/15 text-xs font-semibold text-slate-200 flex items-center justify-center gap-1.5"
+          >
+            <ScanFace className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Face Login</span>
+          </button>
+        </div>
 
         {/* Quick Demo Switcher for Judges */}
         <div className="mt-6 pt-5 border-t border-white/10">

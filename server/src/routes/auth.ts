@@ -1,15 +1,21 @@
 import { Router, type Response } from 'express';
-import { RegisterInputSchema, LoginInputSchema } from '@kamand/shared';
+import {
+  RegisterInputSchema,
+  LoginInputSchema,
+  GoogleLoginInputSchema,
+  type SessionDTO,
+} from '@kamand/shared';
 import { prisma } from '../db.js';
 import { config } from '../config.js';
 import { hashPassword, verifyPassword } from '../security/password.js';
 import { generateRandomToken, hashSessionToken, csrfProtection } from '../security/csrf.js';
+import { verifyGoogleIdToken } from '../security/google.js';
 import { requireAuth, toUserSummary } from '../middleware/auth.js';
 import { createRateLimitMiddleware, authRateLimiter } from '../security/rateLimit.js';
 
 export const authRouter = Router();
 
-function setSessionCookie(res: Response, rawToken: string): void {
+export function setSessionCookie(res: Response, rawToken: string): void {
   res.cookie(config.sessionCookieName, rawToken, {
     httpOnly: true,
     secure: config.isProduction,
@@ -200,6 +206,101 @@ authRouter.post(
   }
 );
 
+// Google OAuth 2.0 / Identity Services Login (with optional `hd` domain check)
+authRouter.post(
+  '/google',
+  createRateLimitMiddleware(authRateLimiter),
+  async (req, res, next) => {
+    try {
+      const parsed = GoogleLoginInputSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ error: 'Google ID token is required.' });
+        return;
+      }
+
+      let profile;
+      try {
+        profile = await verifyGoogleIdToken(parsed.data.idToken);
+      } catch (verifyErr) {
+        res.status(401).json({
+          error: verifyErr instanceof Error ? verifyErr.message : 'Google token verification failed',
+        });
+        return;
+      }
+
+      let user = await prisma.user.findFirst({
+        where: {
+          OR: [{ googleSub: profile.sub }, { email: profile.email }],
+        },
+      });
+
+      if (!user) {
+        const baseUsername = profile.email
+          .split('@')[0]!
+          .replace(/[^a-zA-Z0-9_]/g, '_')
+          .slice(0, 18)
+          .toLowerCase();
+        const uniqueUsername = `${baseUsername}_${generateRandomToken(2)}`;
+        const randomPasswordHash = await hashPassword(generateRandomToken(16) + 'Aa1!');
+
+        user = await prisma.user.create({
+          data: {
+            username: uniqueUsername,
+            email: profile.email,
+            displayName: profile.name,
+            passwordHash: randomPasswordHash,
+            googleSub: profile.sub,
+            avatarUrl: profile.picture,
+          },
+        });
+      } else if (!user.googleSub) {
+        user = await prisma.user.update({
+          where: { id: user.id },
+          data: { googleSub: profile.sub },
+        });
+      }
+
+      if (user.isSuspended) {
+        res.status(403).json({ error: 'This account has been suspended.' });
+        return;
+      }
+
+      const rawToken = generateRandomToken(32);
+      const tokenHash = hashSessionToken(rawToken);
+      const csrfToken = generateRandomToken(24);
+      const expiresAt = new Date(Date.now() + config.sessionTtlMs);
+
+      await prisma.$transaction([
+        prisma.session.create({
+          data: {
+            tokenHash,
+            csrfToken,
+            userId: user.id,
+            userAgent: req.header('user-agent') ?? null,
+            ipAddress: req.ip ?? null,
+            expiresAt,
+          },
+        }),
+        prisma.auditLog.create({
+          data: {
+            actorId: user.id,
+            action: 'USER_GOOGLE_LOGGED_IN',
+            ipAddress: req.ip ?? null,
+          },
+        }),
+      ]);
+
+      setSessionCookie(res, rawToken);
+      res.status(200).json({
+        user: toUserSummary(user),
+        csrfToken,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 authRouter.post('/logout', requireAuth, csrfProtection, async (req, res, next) => {
   try {
     if (req.authSession) {
@@ -217,4 +318,79 @@ authRouter.get('/me', requireAuth, async (req, res) => {
     user: req.authUser,
     csrfToken: req.authSession?.csrfToken,
   });
+});
+
+// Active Sessions List & "Log Out Other Devices"
+authRouter.get('/sessions', requireAuth, async (req, res, next) => {
+  try {
+    const userId = req.authUser!.id;
+    const currentSessionId = req.authSession!.id;
+
+    const sessions = await prisma.session.findMany({
+      where: {
+        userId,
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { lastUsedAt: 'desc' },
+    });
+
+    const dtos: SessionDTO[] = sessions.map((s) => ({
+      id: s.id,
+      userAgent: s.userAgent,
+      ipAddress: s.ipAddress,
+      createdAt: s.createdAt.toISOString(),
+      lastUsedAt: s.lastUsedAt.toISOString(),
+      expiresAt: s.expiresAt.toISOString(),
+      isCurrent: s.id === currentSessionId,
+    }));
+
+    res.status(200).json({ sessions: dtos });
+  } catch (err) {
+    next(err);
+  }
+});
+
+authRouter.post('/sessions/revoke-others', requireAuth, csrfProtection, async (req, res, next) => {
+  try {
+    const userId = req.authUser!.id;
+    const currentSessionId = req.authSession!.id;
+
+    const result = await prisma.session.deleteMany({
+      where: {
+        userId,
+        id: { not: currentSessionId },
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        actorId: userId,
+        action: 'SESSIONS_REVOKED_OTHERS',
+        metadata: JSON.stringify({ revokedCount: result.count }),
+        ipAddress: req.ip ?? null,
+      },
+    });
+
+    res.status(200).json({ ok: true, revokedCount: result.count });
+  } catch (err) {
+    next(err);
+  }
+});
+
+authRouter.delete('/sessions/:sessionId', requireAuth, csrfProtection, async (req, res, next) => {
+  try {
+    const userId = req.authUser!.id;
+    const { sessionId } = req.params;
+
+    const target = await prisma.session.findUnique({ where: { id: sessionId } });
+    if (!target || target.userId !== userId) {
+      res.status(404).json({ error: 'Session not found.' });
+      return;
+    }
+
+    await prisma.session.delete({ where: { id: sessionId } });
+    res.status(200).json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
 });

@@ -14,6 +14,14 @@ export const config = {
   maxLoginAttempts: 5,
   lockoutDurationMs: 1000 * 60 * 15, // 15 minutes
   demoMode: process.env.DEMO_MODE !== 'false',
+  googleClientId: process.env.GOOGLE_CLIENT_ID || '',
+  enforceInstituteDomain: process.env.ENFORCE_INSTITUTE_DOMAIN === 'true',
+  allowedGoogleDomains: (
+    process.env.ALLOWED_GOOGLE_DOMAINS || 'students.iitmandi.ac.in,iitmandi.ac.in'
+  )
+    .split(',')
+    .map((d) => d.trim().toLowerCase())
+    .filter(Boolean),
   adminEmail: process.env.ADMIN_EMAIL || 'admin@iitmandi.ac.in',
   adminUsername: process.env.ADMIN_USERNAME || 'admin',
   adminPassword: process.env.ADMIN_PASSWORD || 'Kamand@2026!',

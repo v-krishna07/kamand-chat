@@ -8,36 +8,44 @@ datasource db {
 }
 
 model User {
-  id                  String    @id @default(uuid())
-  username            String    @unique
-  email               String    @unique
-  displayName         String
-  passwordHash        String
-  avatarUrl           String?
-  bio                 String    @default("Hey there! I am on Kamand Chat.")
-  roomCode            String?
-  isRoomPrivate       Boolean   @default(true)
-  role                String    @default("member") // member | moderator | admin | super_admin
-  isSuspended         Boolean   @default(false)
-  failedLoginAttempts Int       @default(0)
-  lockedUntil         DateTime?
-  lastSeenAt          DateTime  @default(now())
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  id                      String    @id @default(uuid())
+  username                String    @unique
+  email                   String    @unique
+  displayName             String
+  passwordHash            String
+  googleSub               String?   @unique
+  avatarUrl               String?
+  bio                     String    @default("Hey there! I am on Kamand Chat.")
+  roomCode                String?
+  isRoomPrivate           Boolean   @default(true)
+  role                    String    @default("member") // member | moderator | admin | super_admin
+  isSuspended             Boolean   @default(false)
+  failedLoginAttempts     Int       @default(0)
+  lockedUntil             DateTime?
+  wrappedPrivateKeyBackup String?
+  backupSalt              String?
+  backupIv                String?
+  lastSeenAt              DateTime  @default(now())
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
 
-  sessions            Session[]
-  devices             Device[]
-  memberships         Membership[]
-  sentMessages        Message[]          @relation("SentMessages")
-  readReceipts        ReadReceipt[]
-  contactsInitiated   Contact[]          @relation("ContactRequester")
-  contactsReceived    Contact[]          @relation("ContactTarget")
-  statuses            Status[]
-  statusViews         StatusView[]
-  communityMembers    CommunityMember[]
-  createdInvites      Invite[]
-  joinRequests        JoinRequest[]
-  auditLogs           AuditLog[]
+  sessions                Session[]
+  devices                 Device[]
+  faceTemplates           FaceTemplate[]
+  faceChallenges          FaceChallenge[]
+  memberships             Membership[]
+  sentMessages            Message[]          @relation("SentMessages")
+  readReceipts            ReadReceipt[]
+  contactsInitiated       Contact[]          @relation("ContactRequester")
+  contactsReceived        Contact[]          @relation("ContactTarget")
+  statuses                Status[]
+  statusViews             StatusView[]
+  communityMembers        CommunityMember[]
+  createdInvites          Invite[]
+  joinRequests            JoinRequest[]
+  senderKeysSent          GroupSenderKey[]   @relation("SenderKeyOwner")
+  senderKeysReceived      GroupSenderKey[]   @relation("SenderKeyRecipient")
+  auditLogs               AuditLog[]
 
   @@index([username])
   @@index([email])
@@ -67,9 +75,61 @@ model Device {
   deviceName        String
   identityPublicKey String
   signingPublicKey  String
+  keyFingerprint    String   @default("")
   createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   @@index([userId])
+}
+
+model GroupSenderKey {
+  id               String       @id @default(uuid())
+  conversationId   String
+  senderId         String
+  recipientId      String
+  generation       Int          @default(1)
+  wrappedSenderKey String
+  nonce            String
+  createdAt        DateTime     @default(now())
+
+  conversation     Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender           User         @relation("SenderKeyOwner", fields: [senderId], references: [id], onDelete: Cascade)
+  recipient        User         @relation("SenderKeyRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, senderId, recipientId, generation])
+  @@index([conversationId, recipientId])
+}
+
+model FaceTemplate {
+  id                   String   @id @default(uuid())
+  userId               String
+  deviceId             String
+  deviceName           String
+  encryptedEmbedding   String
+  embeddingIv          String
+  faceSigningPublicKey String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceId])
+  @@index([userId])
+}
+
+model FaceChallenge {
+  id        String    @id @default(uuid())
+  userId    String
+  deviceId  String
+  challenge String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, deviceId])
+  @@index([expiresAt])
 }
 
 model Contact {
@@ -89,32 +149,34 @@ model Contact {
 }
 
 model Conversation {
-  id            String       @id @default(uuid())
-  type          String       @default("direct") // direct | group
-  directPairKey String?      @unique            // "<smallerUserId>:<largerUserId>" for idempotent 1:1 creation
-  title         String?
-  lastSeq       Int          @default(0)
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  id                  String           @id @default(uuid())
+  type                String           @default("direct") // direct | group
+  directPairKey       String?          @unique
+  title               String?
+  lastSeq             Int              @default(0)
+  senderKeyGeneration Int              @default(1)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
 
-  memberships   Membership[]
-  messages      Message[]
-  channel       Channel?
+  memberships         Membership[]
+  messages            Message[]
+  channel             Channel?
+  senderKeys          GroupSenderKey[]
 
   @@index([updatedAt])
 }
 
 model Membership {
-  id                 String       @id @default(uuid())
-  conversationId     String
-  userId             String
-  role               String       @default("member") // owner | admin | moderator | member | readonly
-  lastReadSeq        Int          @default(0)
-  lastDeliveredSeq   Int          @default(0)
-  joinedAt           DateTime     @default(now())
+  id               String       @id @default(uuid())
+  conversationId   String
+  userId           String
+  role             String       @default("member")
+  lastReadSeq      Int          @default(0)
+  lastDeliveredSeq Int          @default(0)
+  joinedAt         DateTime     @default(now())
 
-  conversation       Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  user               User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation     Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([conversationId, userId])
   @@index([userId])
@@ -122,28 +184,29 @@ model Membership {
 }
 
 model Message {
-  id             String        @id // Client-generated UUID v4 for idempotent sends
-  conversationId String
-  senderId       String
-  body           String
-  ciphertext     String?
-  nonce          String?
-  type           String        @default("text") // text | image | voice | file | system
-  replyToId      String?
-  threadRootId   String?
-  seq            Int
-  status         String        @default("sent") // sent | delivered | read
-  editedAt       DateTime?
-  deletedAt      DateTime?
-  createdAt      DateTime      @default(now())
+  id                  String        @id
+  conversationId      String
+  senderId            String
+  body                String
+  ciphertext          String?
+  nonce               String?
+  senderKeyGeneration Int?
+  type                String        @default("text")
+  replyToId           String?
+  threadRootId        String?
+  seq                 Int
+  status              String        @default("sent")
+  editedAt            DateTime?
+  deletedAt           DateTime?
+  createdAt           DateTime      @default(now())
 
-  conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  sender         User          @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
-  replyTo        Message?      @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
-  replies        Message[]     @relation("MessageReplies")
-  threadRoot     Message?      @relation("MessageThread", fields: [threadRootId], references: [id], onDelete: Cascade)
-  threadReplies  Message[]     @relation("MessageThread")
-  readReceipts   ReadReceipt[]
+  conversation        Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender              User          @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  replyTo             Message?      @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies             Message[]     @relation("MessageReplies")
+  threadRoot          Message?      @relation("MessageThread", fields: [threadRootId], references: [id], onDelete: Cascade)
+  threadReplies       Message[]     @relation("MessageThread")
+  readReceipts        ReadReceipt[]
 
   @@unique([conversationId, seq])
   @@index([conversationId, seq])
@@ -171,8 +234,8 @@ model Status {
   caption        String
   mediaDataUrl   String?
   bgColor        String       @default("#0284c7")
-  visibility     String       @default("contacts") // contacts | custom
-  allowedUserIds String       @default("[]")       // JSON string array of allowed user UUIDs
+  visibility     String       @default("contacts")
+  allowedUserIds String       @default("[]")
   createdAt      DateTime     @default(now())
   expiresAt      DateTime
 
@@ -219,7 +282,7 @@ model CommunityMember {
   id          String    @id @default(uuid())
   communityId String
   userId      String
-  role        String    @default("member") // owner | admin | moderator | member | readonly
+  role        String    @default("member")
   isMuted     Boolean   @default(false)
   isPinned    Boolean   @default(false)
   isArchived  Boolean   @default(false)
@@ -253,7 +316,7 @@ model Channel {
   conversationId String                      @unique
   name           String
   topic          String                      @default("")
-  type           String                      @default("text") // text | announcement | voice
+  type           String                      @default("text")
   position       Int                         @default(0)
   isPinned       Boolean                     @default(false)
   isArchived     Boolean                     @default(false)
@@ -271,7 +334,7 @@ model Channel {
 model ChannelPermissionOverride {
   id        String  @id @default(uuid())
   channelId String
-  role      String  // owner | admin | moderator | member | readonly
+  role      String
   canView   Boolean @default(true)
   canSend   Boolean @default(true)
 
@@ -302,7 +365,7 @@ model JoinRequest {
   id          String    @id @default(uuid())
   communityId String
   userId      String
-  status      String    @default("pending") // pending | approved | rejected
+  status      String    @default("pending")
   note        String    @default("")
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt

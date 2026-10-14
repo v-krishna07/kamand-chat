@@ -9,15 +9,18 @@ import {
   CircleDot,
   Settings,
   Layers,
+  ShieldCheck,
 } from 'lucide-react';
 import type { UserSummary } from '@kamand/shared';
 import { useChatStore } from '../store/useChatStore.js';
 import { useSocialStore } from '../store/useSocialStore.js';
+import { useSecurityStore } from '../store/useSecurityStore.js';
 import { apiFetch } from '../lib/api.js';
 import { FluidSheet } from './FluidSheet.js';
 import { ContactsPanel } from './ContactsPanel.js';
 import { StatusTray } from './StatusTray.js';
 import { ProfileSheet } from './ProfileSheet.js';
+import { SecuritySheet } from './SecuritySheet.js';
 
 export type PrimarySection = 'chats' | 'communities' | 'contacts' | 'status';
 
@@ -44,10 +47,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   } = useChatStore();
 
   const { contacts, statuses, loadContacts, loadStatuses } = useSocialStore();
+  const ensureDeviceIdentityKeys = useSecurityStore((s) => s.ensureDeviceIdentityKeys);
 
   const [filterQuery, setFilterQuery] = useState('');
   const [isNewChatOpen, setIsNewChatOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isSecurityOpen, setIsSecurityOpen] = useState(false);
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<UserSummary[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -55,7 +60,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   useEffect(() => {
     void loadContacts();
     void loadStatuses();
-  }, [loadContacts, loadStatuses]);
+    void ensureDeviceIdentityKeys();
+  }, [loadContacts, loadStatuses, ensureDeviceIdentityKeys]);
 
   useEffect(() => {
     if (!isNewChatOpen) return;
@@ -118,7 +124,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
 
-        {/* Specific Navigation Bar: Chats | Communities | Contacts | Status */}
+        {/* Specific Navigation Bar: Chats | Groups | Contacts | Status */}
         <div
           className="grid grid-cols-4 gap-1 p-1 rounded-2xl bg-slate-900/90 border border-white/10"
           role="tablist"
@@ -335,7 +341,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </button>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-0.5">
+          <button
+            type="button"
+            onClick={() => setIsSecurityOpen(true)}
+            className="fluid-press min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl text-emerald-400 hover:bg-emerald-500/10"
+            aria-label="Security, E2EE Keys & Devices"
+            title="Security, E2EE Keys & Devices"
+          >
+            <ShieldCheck className="w-4 h-4" />
+          </button>
           <button
             type="button"
             onClick={() => setIsProfileOpen(true)}
@@ -358,6 +373,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       <ProfileSheet isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} />
+      <SecuritySheet isOpen={isSecurityOpen} onClose={() => setIsSecurityOpen(false)} />
 
       <FluidSheet
         isOpen={isNewChatOpen}
