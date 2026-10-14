@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { motion } from 'motion/react';
 import {
   ArrowLeft,
   Send,
@@ -32,6 +33,8 @@ import { FluidSheet } from './FluidSheet.js';
 import { AiConsentSheet } from './AiConsentSheet.js';
 import { MediaLightbox } from './MediaLightbox.js';
 import { generateQrMatrix } from '../lib/qr.js';
+import { SPRING_DEFAULT, rubberband } from '../lib/physics.js';
+import { computeVirtualMessageWindow } from '../lib/virtualizer.js';
 
 interface ChatViewProps {
   conversation: ConversationSummary;
@@ -87,6 +90,38 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [editingMessage, setEditingMessage] = useState<MessageDTO | null>(null);
   const [editBody, setEditBody] = useState('');
 
+  // Virtualization scroll state for 10,000+ messages (§15 & §16.5)
+  const [scrollTopPx, setScrollTopPx] = useState(0);
+  const [viewportHeightPx, setViewportHeightPx] = useState(640);
+
+  // Interactive Edge Swipe-Back gesture state (§7 & §15 Spatial Consistency)
+  const [edgeSwipeX, setEdgeSwipeX] = useState(0);
+  const edgeStartXRef = useRef<number | null>(null);
+
+  const handleEdgePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.clientX <= 24) {
+      e.currentTarget.setPointerCapture(e.pointerId);
+      edgeStartXRef.current = e.clientX;
+    }
+  };
+
+  const handleEdgePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (edgeStartXRef.current === null) return;
+    const delta = Math.max(0, e.clientX - edgeStartXRef.current);
+    setEdgeSwipeX(rubberband(delta, 280, 0.65));
+  };
+
+  const handleEdgePointerUp = () => {
+    if (edgeStartXRef.current === null) return;
+    edgeStartXRef.current = null;
+    if (edgeSwipeX > 90) {
+      setEdgeSwipeX(0);
+      onBackMobile();
+      return;
+    }
+    setEdgeSwipeX(0);
+  };
+
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const voiceChunksRef = useRef<Blob[]>([]);
@@ -115,8 +150,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   useEffect(() => {
     const el = scrollContainerRef.current;
-    if (el && !searchQuery.trim()) {
-      el.scrollTop = el.scrollHeight;
+    if (el) {
+      setViewportHeightPx(el.clientHeight || 640);
+      if (!searchQuery.trim()) {
+        el.scrollTop = el.scrollHeight;
+        setScrollTopPx(el.scrollTop);
+      }
     }
   }, [conversation.id, messages.length, typingNames.length, searchQuery]);
 
@@ -339,8 +378,22 @@ export const ChatView: React.FC<ChatViewProps> = ({
     ? searchDecryptedMessages(messages, searchQuery)
     : messages;
 
+  const virtualWindow = computeVirtualMessageWindow({
+    items: displayedMessages,
+    scrollTopPx,
+    viewportHeightPx,
+  });
+
   return (
-    <div className="flex flex-col h-full w-full bg-slate-950 relative overflow-hidden">
+    <motion.div
+      animate={{ x: edgeSwipeX }}
+      transition={edgeStartXRef.current !== null ? { duration: 0 } : SPRING_DEFAULT}
+      onPointerDown={handleEdgePointerDown}
+      onPointerMove={handleEdgePointerMove}
+      onPointerUp={handleEdgePointerUp}
+      onPointerCancel={handleEdgePointerUp}
+      className="flex flex-col h-full w-full bg-slate-950 relative overflow-hidden"
+    >
       <MediaLightbox
         imageUrl={lightboxImage?.url ?? null}
         caption={lightboxImage?.caption}
@@ -520,6 +573,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       {/* Scrollable Message Stream */}
       <div
         ref={scrollContainerRef}
+        onScroll={(e) => setScrollTopPx(e.currentTarget.scrollTop)}
         className="flex-1 overflow-y-auto px-4 py-4 scroll-edge-mask"
         role="log"
         aria-live="polite"
@@ -559,7 +613,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </div>
         )}
 
-        {displayedMessages.map((msg, idx) => {
+        {virtualWindow.topSpacerPx > 0 && (
+          <div style={{ height: `${virtualWindow.topSpacerPx}px` }} aria-hidden="true" />
+        )}
+
+        {virtualWindow.visibleItems.map((msg, localIdx) => {
+          const idx = virtualWindow.startIndex + localIdx;
           const prev = displayedMessages[idx - 1];
           const next = displayedMessages[idx + 1];
           const isFirstInGroup = !prev || prev.senderId !== msg.senderId;
@@ -590,6 +649,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
             />
           );
         })}
+
+        {virtualWindow.bottomSpacerPx > 0 && (
+          <div style={{ height: `${virtualWindow.bottomSpacerPx}px` }} aria-hidden="true" />
+        )}
 
         <TypingIndicator names={typingNames} />
       </div>
@@ -836,6 +899,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </div>
         </div>
       </FluidSheet>
-    </div>
+    </motion.div>
   );
 };

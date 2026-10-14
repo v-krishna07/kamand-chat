@@ -1,0 +1,24 @@
+FROM node:20-alpine AS builder
+WORKDIR /app
+
+COPY package.json tsconfig.base.json ./
+COPY shared ./shared
+COPY server ./server
+COPY client ./client
+
+RUN npm install
+RUN npm run build --workspace=@kamand/shared
+RUN npx prisma generate --schema=server/prisma/schema.prisma
+RUN npm run build --workspace=@kamand/server
+
+FROM node:20-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/shared ./shared
+COPY --from=builder /app/server ./server
+
+EXPOSE 4000
+CMD ["sh", "-c", "npm run db:push --workspace=@kamand/server && npm run db:seed --workspace=@kamand/server && npm run start --workspace=@kamand/server"]
