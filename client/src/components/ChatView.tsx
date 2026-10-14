@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   Phone,
   Video,
+  Sparkles,
 } from 'lucide-react';
 import type { ConversationSummary, UserSummary } from '@kamand/shared';
 import { useChatStore } from '../store/useChatStore.js';
@@ -18,6 +19,7 @@ import { useCallStore } from '../store/useCallStore.js';
 import { MessageBubble } from './MessageBubble.js';
 import { TypingIndicator } from './TypingIndicator.js';
 import { FluidSheet } from './FluidSheet.js';
+import { AiConsentSheet } from './AiConsentSheet.js';
 import { generateQrMatrix } from '../lib/qr.js';
 
 interface ChatViewProps {
@@ -55,6 +57,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const openPreCallCheck = useCallStore((s) => s.openPreCallCheck);
 
   const [isSafetySheetOpen, setIsSafetySheetOpen] = useState(false);
+  const [isAiSheetOpen, setIsAiSheetOpen] = useState(false);
 
   const messages = messagesByConv[conversation.id] ?? [];
   const pagination = paginationByConv[conversation.id];
@@ -93,6 +96,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!draft.trim() || conversation.isBlocked) return;
+
+    // If the user typed `@ai ...`, open the explicit consent preview sheet instead of silently sending to AI (§11)
+    if (draft.trim().toLowerCase().startsWith('@ai')) {
+      setIsAiSheetOpen(true);
+      return;
+    }
+
     if (typingStopTimeoutRef.current !== null) {
       window.clearTimeout(typingStopTimeoutRef.current);
       typingStopTimeoutRef.current = null;
@@ -196,8 +206,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </div>
         </div>
 
-        {/* E2EE Voice / Video Call Triggers & Safety Number Button */}
+        {/* E2EE Voice / Video Call Triggers, Opt-In AI Assistant & Safety Number Button */}
         <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setIsAiSheetOpen(true)}
+            className="fluid-press px-2.5 py-1.5 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 border border-sky-400/30 text-sky-300 text-xs font-medium flex items-center gap-1"
+            aria-label="Open AI Assistant"
+            title="Opt-In AI Assistant (Summarize, Smart Replies, Translate)"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">AI Assist</span>
+          </button>
+
           {!conversation.isBlocked && (
             <>
               <button
@@ -276,17 +297,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </div>
         )}
 
-        {/* E2EE Banner (§8) */}
         <button
           type="button"
           onClick={() => setIsSafetySheetOpen(true)}
           className="fluid-press mx-auto max-w-md my-3 px-4 py-2 rounded-2xl bg-slate-900/80 hover:bg-slate-900 border border-emerald-500/25 text-center text-caption text-slate-300 flex items-center justify-center gap-2"
         >
           <ShieldCheck className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-          <span>Messages are end-to-end encrypted. Tap to verify safety number.</span>
+          <span>Messages & calls are end-to-end encrypted. Tap to verify safety number.</span>
         </button>
 
-        {/* Visible Warning on Peer Identity Key Change (§8) */}
         {hasKeyChanged && (
           <div
             role="alert"
@@ -353,13 +372,23 @@ export const ChatView: React.FC<ChatViewProps> = ({
             )}
 
             <form onSubmit={handleSubmit} className="flex items-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsAiSheetOpen(true)}
+                className="fluid-press min-h-[44px] min-w-[44px] rounded-2xl bg-slate-900 hover:bg-slate-800 border border-sky-500/30 text-sky-400 flex items-center justify-center"
+                aria-label="AI tools and consent preview"
+                title="Share selected context with @ai"
+              >
+                <Sparkles className="w-4 h-4" />
+              </button>
+
               <textarea
                 ref={textareaRef}
                 rows={1}
                 value={draft}
                 onChange={handleTextareaChange}
                 onKeyDown={handleKeyDown}
-                placeholder={`Message ${peer.displayName}…`}
+                placeholder={`Message ${peer.displayName} (or type @ai)…`}
                 aria-label={`Message ${peer.displayName}`}
                 className="flex-1 max-h-32 resize-none rounded-2xl bg-slate-900/90 border border-white/10 px-4 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-sky-500 transition-colors"
               />
@@ -376,7 +405,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
         )}
       </div>
 
-      {/* Safety Number / QR Verification Sheet (§8) */}
+      {/* Explicit Opt-In AI Consent & Toolkit Sheet (§11) */}
+      <AiConsentSheet
+        isOpen={isAiSheetOpen}
+        onClose={() => setIsAiSheetOpen(false)}
+        conversationMessages={messages}
+        initialDraft={draft}
+        onApplyToDraft={(text) => setDraft(conversation.id, text)}
+        onSendAiReplyToChat={(text) => {
+          setDraft(conversation.id, '');
+          void sendMessage(conversation.id, text, currentUser);
+        }}
+      />
+
+      {/* Safety Number Sheet */}
       <FluidSheet
         isOpen={isSafetySheetOpen}
         onClose={() => setIsSafetySheetOpen(false)}
@@ -385,9 +427,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         <div className="space-y-4 text-center">
           <p className="text-xs text-slate-300">
             Compare this 60-digit Safety Number or scan the QR code with{' '}
-            <span className="font-semibold text-white">{peer.displayName}</span>. If the numbers
-            match, your conversation is end-to-end encrypted with zero man-in-the-middle
-            interception.
+            <span className="font-semibold text-white">{peer.displayName}</span>.
           </p>
 
           <div className="mx-auto p-3 rounded-2xl bg-white w-fit">

@@ -619,7 +619,76 @@ export const CallLogDTO_Schema = z.object({
 export type CallLogDTO = z.infer<typeof CallLogDTO_Schema>;
 
 // ============================================================================
-// 8. WebSocket Event Payloads & Acknowledgements
+// 8. LLM / AI Assistant Schemas (Phase 6 - Section 11)
+// ============================================================================
+
+export const AiActionSchema = z.enum([
+  'reply',
+  'summarize',
+  'smart_replies',
+  'translate',
+  'rewrite',
+  'extract_tasks',
+  'ask',
+]);
+export type AiAction = z.infer<typeof AiActionSchema>;
+
+export const AiContextMessageSchema = z.object({
+  senderName: z.string().trim().min(1).max(80),
+  body: z.string().trim().min(1).max(4000),
+  createdAt: z.string().optional(),
+});
+export type AiContextMessage = z.infer<typeof AiContextMessageSchema>;
+
+export const AiUserPreferencesSchema = z.object({
+  preferredLanguage: z.string().trim().max(40).default('English'),
+  defaultTone: z.enum(['concise', 'friendly', 'academic', 'formal']).default('concise'),
+  customContextNote: z.string().trim().max(240).optional().default(''),
+});
+export type AiUserPreferences = z.infer<typeof AiUserPreferencesSchema>;
+
+export const AiAssistRequestSchema = z.object({
+  action: AiActionSchema,
+  explicitConsent: z.boolean().refine((v) => v === true, {
+    message: 'Explicit user consent is mandatory before sharing any context with the AI assistant.',
+  }),
+  prompt: z.string().trim().max(2000).optional().default(''),
+  targetLanguage: z.string().trim().max(40).optional().default('Hindi'),
+  rewriteTone: z
+    .enum(['concise', 'friendly', 'academic', 'formal', 'hinglish'])
+    .optional()
+    .default('concise'),
+  selectedMessages: z.array(AiContextMessageSchema).max(50).default([]),
+  preferences: AiUserPreferencesSchema.optional(),
+});
+export type AiAssistRequest = z.infer<typeof AiAssistRequestSchema>;
+
+export const AiExtractedTaskSchema = z.object({
+  title: z.string(),
+  dueOrTime: z.string().nullable(),
+  owner: z.string().nullable(),
+});
+export type AiExtractedTask = z.infer<typeof AiExtractedTaskSchema>;
+
+export const AiAssistResponseSchema = z.object({
+  action: AiActionSchema,
+  provider: z.string(),
+  outputText: z.string(),
+  smartReplies: z.array(z.string()).optional(),
+  extractedTasks: z.array(AiExtractedTaskSchema).optional(),
+  tokensUsed: z.number().int().nonnegative(),
+  remainingBudget: z.number().int().nonnegative(),
+});
+export type AiAssistResponse = z.infer<typeof AiAssistResponseSchema>;
+
+export const AiTriageReportInputSchema = z.object({
+  reason: z.string().trim().min(1).max(500),
+  attachedMessages: z.array(AiContextMessageSchema).max(20),
+});
+export type AiTriageReportInput = z.infer<typeof AiTriageReportInputSchema>;
+
+// ============================================================================
+// 9. WebSocket Event Payloads & Acknowledgements
 // ============================================================================
 
 export const WsSendMessagePayloadSchema = z

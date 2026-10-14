@@ -10,6 +10,7 @@ import {
   Settings,
   Layers,
   ShieldCheck,
+  Sparkles,
 } from 'lucide-react';
 import type { UserSummary } from '@kamand/shared';
 import { useChatStore } from '../store/useChatStore.js';
@@ -21,8 +22,9 @@ import { ContactsPanel } from './ContactsPanel.js';
 import { StatusTray } from './StatusTray.js';
 import { ProfileSheet } from './ProfileSheet.js';
 import { SecuritySheet } from './SecuritySheet.js';
+import { AskAiPanel } from './AskAiPanel.js';
 
-export type PrimarySection = 'chats' | 'communities' | 'contacts' | 'status';
+export type PrimarySection = 'chats' | 'communities' | 'contacts' | 'status' | 'ai';
 
 interface SidebarProps {
   currentUser: UserSummary;
@@ -124,9 +126,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
 
-        {/* Specific Navigation Bar: Chats | Groups | Contacts | Status */}
+        {/* Specific Navigation Bar: Chats | Groups | Contacts | Status | Ask AI */}
         <div
-          className="grid grid-cols-4 gap-1 p-1 rounded-2xl bg-slate-900/90 border border-white/10"
+          className="grid grid-cols-5 gap-1 p-1 rounded-2xl bg-slate-900/90 border border-white/10"
           role="tablist"
           aria-label="Primary sections"
         >
@@ -141,7 +143,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            <MessageSquare className="w-3.5 h-3.5" />
+            <MessageSquare className="w-3 h-3" />
             <span>Chats</span>
           </button>
 
@@ -156,7 +158,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            <Layers className="w-3.5 h-3.5" />
+            <Layers className="w-3 h-3" />
             <span>Groups</span>
           </button>
 
@@ -171,10 +173,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            <Users className="w-3.5 h-3.5" />
+            <Users className="w-3 h-3" />
             <span>Contacts</span>
             {incomingRequestCount > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[10px]">
+              <span className="px-1 py-0.2 rounded-full bg-rose-500 text-white text-[9px]">
                 {incomingRequestCount}
               </span>
             )}
@@ -191,9 +193,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            <CircleDot className="w-3.5 h-3.5" />
+            <CircleDot className="w-3 h-3" />
             <span>Status</span>
-            {unviewedStatusCount > 0 && <span className="w-2 h-2 rounded-full bg-sky-300" />}
+            {unviewedStatusCount > 0 && <span className="w-1.5 h-1.5 rounded-full bg-sky-300" />}
+          </button>
+
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeSection === 'ai'}
+            onClick={() => onChangeSection('ai')}
+            className={`fluid-press py-1.5 rounded-xl text-[11px] font-semibold flex items-center justify-center gap-1 ${
+              activeSection === 'ai'
+                ? 'bg-sky-500 text-white shadow-xs'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Sparkles className="w-3 h-3" />
+            <span>Ask AI</span>
           </button>
         </div>
 
@@ -220,6 +237,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         />
       ) : activeSection === 'status' ? (
         <StatusTray currentUser={currentUser} />
+      ) : activeSection === 'ai' ? (
+        <AskAiPanel />
       ) : (
         <div
           className="flex-1 overflow-y-auto divide-y divide-white/5"

@@ -34,4 +34,19 @@ export const config = {
   turnUrl: process.env.TURN_URL || '',
   turnUsername: process.env.TURN_USERNAME || '',
   turnCredential: process.env.TURN_CREDENTIAL || '',
+  aiProvider: (process.env.AI_PROVIDER || 'anthropic') as
+    | 'anthropic'
+    | 'openai'
+    | 'gemini'
+    | 'ollama'
+    | 'mock',
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY || '',
+  anthropicModel: process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-latest',
+  openaiApiKey: process.env.OPENAI_API_KEY || '',
+  openaiModel: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+  geminiApiKey: process.env.GEMINI_API_KEY || '',
+  geminiModel: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+  ollamaBaseUrl: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
+  ollamaModel: process.env.OLLAMA_MODEL || 'gemma3:4b',
+  aiDailyTokenBudget: parseInt(process.env.AI_DAILY_TOKEN_BUDGET || '25000', 10),
 };
