@@ -47,6 +47,8 @@ model User {
   senderKeysReceived      GroupSenderKey[]   @relation("SenderKeyRecipient")
   callsInitiated          CallLog[]
   auditLogs               AuditLog[]
+  connectorAccounts       ConnectorAccount[]
+  campusDataCreated       CampusDatum[]
   courseEnrollments       CourseEnrollment[]
   timetableSlots          TimetableSlot[]
 
@@ -470,24 +472,67 @@ model Assignment {
   @@index([dueDate])
 }
 
-model TimetableSlot {
-  id        String   @id @default(uuid())
-  courseId  String?
-  userId    String?
-  dayOfWeek String
-  startTime String
-  endTime   String
-  location  String
-  title     String
-  slotCode  String?
-  createdAt DateTime @default(now())
+model ConnectorAccount {
+  id             String    @id @default(uuid())
+  userId         String
+  connectorId    String
+  encryptedToken String
+  tokenIv        String
+  sourceMode     String    @default("official_api")
+  status         String    @default("connected")
+  failureCount   Int       @default(0)
+  lastSyncAt     DateTime?
+  nextRetryAt    DateTime?
+  lastError      String?
+  cachedJson     String    @default("{}")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  course    Course?  @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([dayOfWeek, startTime])
+  @@unique([userId, connectorId])
   @@index([userId])
-  @@index([courseId])
+  @@index([connectorId, status])
+}
+
+model TimetableSlot {
+  id          String   @id @default(uuid())
+  userId      String
+  courseCode  String   @default("")
+  courseTitle String   @default("")
+  roomCode    String   @default("")
+  dayOfWeek   String
+  startTime   String
+  endTime     String
+  location    String   @default("")
+  title       String   @default("")
+  slotCode    String?
+  courseId    String?
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course      Course?  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@index([userId, dayOfWeek])
+}
+
+model CampusDatum {
+  id           String   @id @default(uuid())
+  category     String
+  title        String
+  subtitle     String   @default("")
+  body         String
+  locationCode String   @default("")
+  eventTime    String   @default("")
+  upvotes      Int      @default(0)
+  authorId     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  author       User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([category, createdAt])
+  @@index([authorId])
 }
 
 model BusTrip {

@@ -3,11 +3,10 @@ import request from 'supertest';
 import { createApp } from '../src/app.js';
 import { prisma } from '../src/db.js';
 import { authRateLimiter } from '../src/security/rateLimit.js';
-import { tryThenDegrade } from '../src/campus/connector.js';
-import { parseIcsEvents } from '../src/campus/moodle.js';
-import { timetableService } from '../src/campus/timetable.js';
-import { busService } from '../src/campus/bus.js';
-import { determineCurrentMealType } from '../src/campus/mess.js';
+import {
+  resetAllConnectorStatesForTesting,
+  setConnectorProbeOverrideForTesting,
+} from '../src/campus/connectorRegistry.js';
 
 const app = createApp();
 
@@ -21,19 +20,13 @@ function extractSessionCookie(setCookieHeader: string[] | string | undefined): s
   return match ? match.split(';')[0]! : '';
 }
 
-async function registerTestUser(username: string, role = 'member') {
+async function registerTestUser(username: string, email?: string) {
   const res = await request(app).post('/api/auth/register').send({
     username,
-    email: `${username}@students.iitmandi.ac.in`,
+    email: email || `${username}@students.iitmandi.ac.in`,
     displayName: username.toUpperCase(),
     password: 'Password123',
   });
-  if (role !== 'member') {
-    await prisma.user.update({
-      where: { id: res.body.user.id },
-      data: { role },
-    });
-  }
   return {
     user: res.body.user,
     csrfToken: res.body.csrfToken as string,
@@ -43,34 +36,12 @@ async function registerTestUser(username: string, role = 'member') {
 
 beforeEach(async () => {
   authRateLimiter.reset();
-  await prisma.assignment.deleteMany();
+  resetAllConnectorStatesForTesting();
+  await prisma.campusDatum.deleteMany();
   await prisma.timetableSlot.deleteMany();
-  await prisma.courseEnrollment.deleteMany();
-  await prisma.course.deleteMany();
-  await prisma.busTrip.deleteMany();
-  await prisma.messMenu.deleteMany();
-  await prisma.campusService.deleteMany();
-  await prisma.callLog.deleteMany();
-  await prisma.faceChallenge.deleteMany();
-  await prisma.faceTemplate.deleteMany();
-  await prisma.groupSenderKey.deleteMany();
-  await prisma.device.deleteMany();
-  await prisma.joinRequest.deleteMany();
-  await prisma.invite.deleteMany();
-  await prisma.channelPermissionOverride.deleteMany();
-  await prisma.channel.deleteMany();
-  await prisma.category.deleteMany();
-  await prisma.communityMember.deleteMany();
-  await prisma.community.deleteMany();
-  await prisma.statusView.deleteMany();
-  await prisma.status.deleteMany();
-  await prisma.readReceipt.deleteMany();
-  await prisma.message.deleteMany();
-  await prisma.membership.deleteMany();
-  await prisma.conversation.deleteMany();
-  await prisma.contact.deleteMany();
-  await prisma.session.deleteMany();
+  await prisma.connectorAccount.deleteMany();
   await prisma.auditLog.deleteMany();
+  await prisma.session.deleteMany();
   await prisma.user.deleteMany();
 });
 
@@ -78,333 +49,165 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe('Phase 7 Verification Suite: IIT Mandi Campus Layer (Try, Then Degrade Connectors, Moodle & ICS Sync, Timetable Free Slots, Bus & Mess, Grounded AI Citations & Admin CRUD)', () => {
-  it('1. Verifies connector probe() and "Try, Then Degrade" pattern returns healthy/degraded status without throwing', async () => {
-    const u = await registerTestUser('campus_student');
+describe('Phase 7 Verification Suite: Campus Connectors (Pass, Fail, Timeout, Schema-Change, Auth-Failure), UI Hiding, Encrypted Token Purge & Zero Password Storage', () => {
+  it('1. Probes connectors across pass, fail, timeout, schema_change, and auth_failure; hides UI on failure and locks after 3 consecutive failures for 24h', async () => {
+    const u = await registerTestUser('probe_user', 'b26343@students.iitmandi.ac.in');
 
-    // Test direct tryThenDegrade utility behavior
-    const result = await tryThenDegrade(
-      async () => {
-        throw new Error('Simulated Moodle LMS network outage');
-      },
-      async () => {
-        return ['Cached Course CS302', 'Cached Course CS307'];
-      },
-      100
-    );
+    // 1. Pass outcome
+    const passRes = await request(app)
+      .post('/api/campus/connectors/moodle_lms/probe')
+      .set('Cookie', u.cookie)
+      .set('X-CSRF-Token', u.csrfToken)
+      .send({ simulatedOutcome: 'pass', forceRetry: true });
+    expect(passRes.status).toBe(200);
+    expect(passRes.body.connector.status).toBe('connected');
+    expect(passRes.body.connector.uiVisible).toBe(true);
 
-    expect(result.fallbackActive).toBe(true);
-    expect(result.data).toHaveLength(2);
-    expect(result.data[0]).toBe('Cached Course CS302');
+    // 2. Fail outcome -> uiVisible must become false ("degraded_hidden")
+    const failRes = await request(app)
+      .post('/api/campus/connectors/moodle_lms/probe')
+      .set('Cookie', u.cookie)
+      .set('X-CSRF-Token', u.csrfToken)
+      .send({ simulatedOutcome: 'fail', forceRetry: true });
+    expect(failRes.body.connector.status).toBe('degraded_hidden');
+    expect(failRes.body.connector.uiVisible).toBe(false);
+    expect(failRes.body.connector.failureCount).toBe(1);
 
-    // Test GET /api/campus/health
-    const healthRes = await request(app)
-      .get('/api/campus/health')
-      .set('Cookie', u.cookie);
+    // 3. Timeout outcome -> failureCount = 2, uiVisible = false
+    const timeoutRes = await request(app)
+      .post('/api/campus/connectors/moodle_lms/probe')
+      .set('Cookie', u.cookie)
+      .set('X-CSRF-Token', u.csrfToken)
+      .send({ simulatedOutcome: 'timeout', forceRetry: true });
+    expect(timeoutRes.body.connector.status).toBe('degraded_hidden');
+    expect(timeoutRes.body.connector.uiVisible).toBe(false);
+    expect(timeoutRes.body.connector.failureCount).toBe(2);
+    expect(timeoutRes.body.connector.lastError).toContain('timed out');
 
-    expect(healthRes.status).toBe(200);
-    expect(healthRes.body.connectors).toBeInstanceOf(Array);
-    const moodleConnector = healthRes.body.connectors.find(
-      (c: { id: string }) => c.id === 'iitmandi-moodle'
-    );
-    expect(moodleConnector).toBeDefined();
-    expect(moodleConnector.fallbackActive).toBe(true);
+    // 4. Schema-change outcome -> failureCount = 3 (hits maxProbeFailures = 3 -> 24h backoff)
+    const schemaRes = await request(app)
+      .post('/api/campus/connectors/moodle_lms/probe')
+      .set('Cookie', u.cookie)
+      .set('X-CSRF-Token', u.csrfToken)
+      .send({ simulatedOutcome: 'schema_change', forceRetry: true });
+    expect(schemaRes.body.connector.failureCount).toBe(3);
+    expect(schemaRes.body.connector.uiVisible).toBe(false);
+    expect(schemaRes.body.connector.lastError).toContain('schema changed');
+
+    // 5. Auth-failure outcome on academic_portal -> uiVisible = false
+    const authFailRes = await request(app)
+      .post('/api/campus/connectors/academic_portal/probe')
+      .set('Cookie', u.cookie)
+      .set('X-CSRF-Token', u.csrfToken)
+      .send({ simulatedOutcome: 'auth_failure', forceRetry: true });
+    expect(authFailRes.body.connector.status).toBe('degraded_hidden');
+    expect(authFailRes.body.connector.uiVisible).toBe(false);
+    expect(authFailRes.body.connector.lastError).toContain('SSO/CAPTCHA');
   });
 
-  it('2. Parses standard iCalendar (.ics) exports and executes Moodle sync with graceful fallback', async () => {
-    const u = await registerTestUser('moodle_user');
+  it('2. Encrypts Moodle token at rest, never persists or logs institute passwords on login_once exchange, hides UI on failure, and deletes cached data + token on disconnect', async () => {
+    const u = await registerTestUser('moodle_student', 'b23101@students.iitmandi.ac.in');
+    const sensitiveInstitutePassword = 'MySuperSecretInstitutePassword!99';
 
-    const sampleIcs = [
-      'BEGIN:VCALENDAR',
-      'VERSION:2.0',
-      'PRODID:-//Moodle//NONSGML Moodle 4.x//EN',
-      'BEGIN:VEVENT',
-      'SUMMARY:[CS302] Assignment 3: Red-Black Trees',
-      'DESCRIPTION:Implement balance rotations and verify logarithmic depth',
-      'DTSTART:20261028T180000Z',
-      'DTEND:20261028T180000Z',
-      'END:VEVENT',
-      'BEGIN:VEVENT',
-      'SUMMARY:CS307: Lab 4 Concurrency Primitives',
-      'DESCRIPTION:Sleeping locks and spinlocks in xv6',
-      'DTSTART:20261102T180000Z',
-      'DTEND:20261102T180000Z',
-      'END:VEVENT',
-      'END:VCALENDAR',
-    ].join('\r\n');
+    // Connect using login_once mode
+    const connectRes = await request(app)
+      .post('/api/campus/connectors/moodle/connect')
+      .set('Cookie', u.cookie)
+      .set('X-CSRF-Token', u.csrfToken)
+      .send({
+        explicitConsent: true,
+        mode: 'login_once',
+        username: 'b23101',
+        password: sensitiveInstitutePassword,
+      });
 
-    const parsedEvents = parseIcsEvents(sampleIcs);
-    expect(parsedEvents).toHaveLength(2);
-    expect(parsedEvents[0]!.courseCode).toBe('CS302');
-    expect(parsedEvents[0]!.title).toContain('Assignment 3: Red-Black Trees');
-    expect(parsedEvents[1]!.courseCode).toBe('CS307');
+    expect(connectRes.status).toBe(200);
+    expect(connectRes.body.ok).toBe(true);
+    expect(connectRes.body.connector.uiVisible).toBe(true);
 
-    // Test POST /api/campus/courses/sync-moodle
-    const syncRes = await request(app)
-      .post('/api/campus/courses/sync-moodle')
+    // Inspect raw DB dump (ConnectorAccount + AuditLog) -> confirm password is NEVER persisted anywhere
+    const rawAccount = await prisma.connectorAccount.findUnique({
+      where: {
+        userId_connectorId: { userId: u.user.id, connectorId: 'moodle_lms' },
+      },
+    });
+    expect(rawAccount).not.toBeNull();
+    expect(JSON.stringify(rawAccount)).not.toContain(sensitiveInstitutePassword);
+    expect(rawAccount!.encryptedToken).not.toContain('moodle-exchanged-ws-token'); // Encrypted at rest
+
+    const logs = await prisma.auditLog.findMany({ where: { actorId: u.user.id } });
+    expect(JSON.stringify(logs)).not.toContain(sensitiveInstitutePassword);
+
+    // Verify Today dashboard shows Moodle courses & deadlines while connected
+    const todayConnected = await request(app).get('/api/campus/today').set('Cookie', u.cookie);
+    expect(todayConnected.status).toBe(200);
+    expect(todayConnected.body.studentProfile.rollNumber).toBe('B23101');
+    expect(todayConnected.body.moodle.uiVisible).toBe(true);
+    expect(todayConnected.body.moodle.courses.length).toBeGreaterThan(0);
+
+    // Simulate connector failure -> Today dashboard must hide Moodle UI (`moodle.uiVisible === false`, empty courses)
+    setConnectorProbeOverrideForTesting('moodle_lms', 'fail');
+    await request(app)
+      .post('/api/campus/connectors/moodle_lms/probe')
+      .set('Cookie', u.cookie)
+      .set('X-CSRF-Token', u.csrfToken)
+      .send({ forceRetry: true });
+
+    const todayDegraded = await request(app).get('/api/campus/today').set('Cookie', u.cookie);
+    expect(todayDegraded.body.moodle.uiVisible).toBe(false);
+    expect(todayDegraded.body.moodle.courses).toHaveLength(0);
+
+    // One-tap Disconnect & Delete Cached Data -> deletes ConnectorAccount row and encrypted token
+    const disconnectRes = await request(app)
+      .delete('/api/campus/connectors/moodle_lms')
       .set('Cookie', u.cookie)
       .set('X-CSRF-Token', u.csrfToken);
+    expect(disconnectRes.status).toBe(200);
+    expect(disconnectRes.body.deletedCachedData).toBe(true);
 
-    expect(syncRes.status).toBe(200);
-    expect(syncRes.body.fallbackActive).toBe(true);
-    expect(syncRes.body.source).toBe('local_cache');
-    expect(syncRes.body.syncedAt).toBeDefined();
+    const afterDelete = await prisma.connectorAccount.findUnique({
+      where: {
+        userId_connectorId: { userId: u.user.id, connectorId: 'moodle_lms' },
+      },
+    });
+    expect(afterDelete).toBeNull();
   });
 
-  it('3. Computes mutual unallocated free-slots across multiple students to find common meeting times', async () => {
-    const student1 = await registerTestUser('peer_aravind');
-    const student2 = await registerTestUser('peer_priya');
+  it('3. Grounds Campus AI answers strictly on verified campus data with source citations and returns "Not found" instead of guessing', async () => {
+    const admin = await registerTestUser('campus_admin');
+    await prisma.user.update({ where: { id: admin.user.id }, data: { role: 'super_admin' } });
 
-    // Create course and timetable slots on Monday
-    const c1 = await prisma.course.create({
-      data: {
-        code: 'CS302',
-        title: 'Algorithms',
-        instructor: 'Dr. Varun',
-        slot: 'A',
-      },
-    });
-    const c2 = await prisma.course.create({
-      data: {
-        code: 'EE201',
-        title: 'Signals',
-        instructor: 'Dr. Ankush',
-        slot: 'B',
-      },
-    });
-
-    // Student 1 is busy 09:00 - 10:00 (CS302)
-    await prisma.courseEnrollment.create({
-      data: { userId: student1.user.id, courseId: c1.id },
-    });
-    await prisma.timetableSlot.create({
-      data: {
-        courseId: c1.id,
-        dayOfWeek: 'Monday',
-        startTime: '09:00',
-        endTime: '10:00',
-        location: 'A1-NKN',
-        title: 'CS302: Algorithms',
-      },
-    });
-
-    // Student 2 is busy 11:00 - 12:00 (EE201)
-    await prisma.courseEnrollment.create({
-      data: { userId: student2.user.id, courseId: c2.id },
-    });
-    await prisma.timetableSlot.create({
-      data: {
-        courseId: c2.id,
-        dayOfWeek: 'Monday',
-        startTime: '11:00',
-        endTime: '12:00',
-        location: 'A2-201',
-        title: 'EE201: Signals',
-      },
-    });
-
-    // Calculate free slots between 08:00 and 14:00
-    const freeSlots = await timetableService.findCommonFreeSlots({
-      userIds: [student1.user.id, student2.user.id],
-      dayOfWeek: 'Monday',
-      windowStart: '08:00',
-      windowEnd: '14:00',
-      minDurationMins: 30,
-    });
-
-    // Expected mutual free slots:
-    // 08:00 - 09:00 (60 mins)
-    // 10:00 - 11:00 (60 mins)
-    // 12:00 - 14:00 (120 mins)
-    expect(freeSlots).toHaveLength(3);
-    expect(freeSlots[0]!.startTime).toBe('08:00');
-    expect(freeSlots[0]!.endTime).toBe('09:00');
-    expect(freeSlots[0]!.durationMins).toBe(60);
-
-    expect(freeSlots[1]!.startTime).toBe('10:00');
-    expect(freeSlots[1]!.endTime).toBe('11:00');
-    expect(freeSlots[1]!.durationMins).toBe(60);
-
-    expect(freeSlots[2]!.startTime).toBe('12:00');
-    expect(freeSlots[2]!.endTime).toBe('14:00');
-    expect(freeSlots[2]!.durationMins).toBe(120);
-
-    // Verify endpoint POST /api/campus/timetable/free-slots
-    const endpointRes = await request(app)
-      .post('/api/campus/timetable/free-slots')
-      .set('Cookie', student1.cookie)
-      .set('X-CSRF-Token', student1.csrfToken)
-      .send({
-        userIds: [student1.user.id, student2.user.id],
-        dayOfWeek: 'Monday',
-        windowStart: '08:00',
-        windowEnd: '14:00',
-        minDurationMins: 30,
-      });
-
-    expect(endpointRes.status).toBe(200);
-    expect(endpointRes.body.freeSlots).toHaveLength(3);
-  });
-
-  it('4. Computes live bus schedule and accurately identifies the immediate next upcoming valley bus', async () => {
-    const u = await registerTestUser('bus_rider');
-
-    await prisma.busTrip.create({
-      data: {
-        routeName: 'North Campus -> South Campus',
-        fromLocation: 'Mind Tree',
-        toLocation: 'South Gate',
-        departureTime: '10:00',
-      },
-    });
-    await prisma.busTrip.create({
-      data: {
-        routeName: 'North Campus -> South Campus',
-        fromLocation: 'Mind Tree',
-        toLocation: 'South Gate',
-        departureTime: '14:30',
-      },
-    });
-
-    // Test at 09:40 AM (before 10:00 AM trip)
-    const testTime1 = new Date();
-    testTime1.setHours(9, 40, 0, 0);
-
-    const schedule1 = await busService.getBusSchedule(testTime1);
-    const trip1 = schedule1.find((t) => t.departureTime === '10:00');
-    expect(trip1).toBeDefined();
-    expect(trip1!.minutesUntilDeparture).toBe(20);
-    expect(trip1!.isNext).toBe(true);
-
-    // Test at 11:00 AM (after 10:00 trip, before 14:30 trip)
-    const testTime2 = new Date();
-    testTime2.setHours(11, 0, 0, 0);
-
-    const schedule2 = await busService.getBusSchedule(testTime2);
-    const trip2 = schedule2.find((t) => t.departureTime === '14:30');
-    expect(trip2).toBeDefined();
-    expect(trip2!.minutesUntilDeparture).toBe(210);
-    expect(trip2!.isNext).toBe(true);
-
-    // Verify GET /api/campus/bus
-    const res = await request(app).get('/api/campus/bus').set('Cookie', u.cookie);
-    expect(res.status).toBe(200);
-    expect(res.body.schedule).toHaveLength(2);
-  });
-
-  it('5. Retrieves mess menus and dynamically identifies meal types by operating hours', async () => {
-    const u = await registerTestUser('mess_student');
-
-    expect(determineCurrentMealType(8)).toBe('breakfast');
-    expect(determineCurrentMealType(13)).toBe('lunch');
-    expect(determineCurrentMealType(17)).toBe('snacks');
-    expect(determineCurrentMealType(20)).toBe('dinner');
-
-    await prisma.messMenu.create({
-      data: {
-        hostelName: 'Oak Mess',
-        dayOfWeek: 'Monday',
-        mealType: 'lunch',
-        items: JSON.stringify(['Rajma Madra', 'Steamed Rice', 'Phulka Roti']),
-        dietaryNote: 'Himachali Special',
-      },
-    });
-
-    const res = await request(app)
-      .get('/api/campus/mess?hostel=Oak%20Mess')
-      .set('Cookie', u.cookie);
-
-    expect(res.status).toBe(200);
-    expect(res.body.menu).toHaveLength(1);
-    expect(res.body.menu[0].items).toContain('Rajma Madra');
-    expect(res.body.menu[0].dietaryNote).toBe('Himachali Special');
-  });
-
-  it('6. Answers campus queries via Grounded Campus AI with verifiable citations', async () => {
-    const u = await registerTestUser('qa_user');
-
-    // Query 1: Transit
-    const busRes = await request(app)
-      .post('/api/campus/ask')
-      .set('Cookie', u.cookie)
-      .set('X-CSRF-Token', u.csrfToken)
-      .send({ query: 'Tell me about the electric buses between North and South campus' });
-
-    expect(busRes.status).toBe(200);
-    expect(busRes.body.answer).toContain('North Campus');
-    expect(busRes.body.citations).toBeInstanceOf(Array);
-    expect(busRes.body.citations.length).toBeGreaterThan(0);
-    expect(busRes.body.citations[0].sourceType).toBe('bus_schedule');
-    expect(busRes.body.citations[0].reference).toContain('Transport Desk');
-
-    // Query 2: Emergency Clinic
-    const clinicRes = await request(app)
-      .post('/api/campus/ask')
-      .set('Cookie', u.cookie)
-      .set('X-CSRF-Token', u.csrfToken)
-      .send({ query: 'What is the ambulance phone number for emergency at Kamand health clinic?' });
-
-    expect(clinicRes.status).toBe(200);
-    expect(clinicRes.body.answer).toContain('267011');
-    expect(clinicRes.body.citations[0].sourceType).toBe('campus_handbook');
-  });
-
-  it('7. Enforces role-based permissions: members are forbidden from mutating bus/mess data, admins succeed', async () => {
-    const member = await registerTestUser('regular_student', 'member');
-    const admin = await registerTestUser('campus_admin', 'admin');
-
-    // Member attempts to create bus trip -> 403 Forbidden
-    const forbiddenBus = await request(app)
-      .post('/api/campus/bus')
-      .set('Cookie', member.cookie)
-      .set('X-CSRF-Token', member.csrfToken)
-      .send({
-        routeName: 'South -> Town',
-        fromLocation: 'South Campus',
-        toLocation: 'Mandi Town',
-        departureTime: '17:00',
-      });
-    expect(forbiddenBus.status).toBe(403);
-
-    // Admin creates bus trip -> 201 Created
-    const allowedBus = await request(app)
-      .post('/api/campus/bus')
+    await request(app)
+      .post('/api/campus/services')
       .set('Cookie', admin.cookie)
       .set('X-CSRF-Token', admin.csrfToken)
       .send({
-        routeName: 'South -> Town',
-        fromLocation: 'South Campus',
-        toLocation: 'Mandi Town',
-        departureTime: '17:00',
+        category: 'mess_menu',
+        title: 'Pine Mess Dinner Menu',
+        subtitle: 'North Campus',
+        body: 'Paneer Butter Masala, Moong Dal, and Chapati served from 19:30 to 21:30.',
       });
-    expect(allowedBus.status).toBe(201);
-    expect(allowedBus.body.trip.departureTime).toBe('17:00');
 
-    // Member attempts to update mess -> 403 Forbidden
-    const forbiddenMess = await request(app)
-      .put('/api/campus/mess')
-      .set('Cookie', member.cookie)
-      .set('X-CSRF-Token', member.csrfToken)
-      .send({
-        hostelName: 'Oak Mess',
-        dayOfWeek: 'Monday',
-        mealType: 'dinner',
-        items: ['Pizza', 'Pasta'],
-      });
-    expect(forbiddenMess.status).toBe(403);
-
-    // Admin updates mess -> 200 OK
-    const allowedMess = await request(app)
-      .put('/api/campus/mess')
+    // Query matching grounded data -> returns answer + source citation
+    const hitRes = await request(app)
+      .post('/api/campus/ask-grounded')
       .set('Cookie', admin.cookie)
       .set('X-CSRF-Token', admin.csrfToken)
-      .send({
-        hostelName: 'Oak Mess',
-        dayOfWeek: 'Monday',
-        mealType: 'dinner',
-        items: ['Dal Makhani', 'Shahi Paneer', 'Naan'],
-      });
-    expect(allowedMess.status).toBe(200);
-    expect(allowedMess.body.meal.items).toContain('Dal Makhani');
+      .send({ question: 'What is on the Pine Mess dinner menu?' });
+    expect(hitRes.status).toBe(200);
+    expect(hitRes.body.found).toBe(true);
+    expect(hitRes.body.answer).toContain('Paneer Butter Masala');
+    expect(hitRes.body.citations[0].title).toBe('Pine Mess Dinner Menu');
+
+    // Query about unverified topic -> returns found: false & "Not found"
+    const missRes = await request(app)
+      .post('/api/campus/ask-grounded')
+      .set('Cookie', admin.cookie)
+      .set('X-CSRF-Token', admin.csrfToken)
+      .send({ question: 'When does the Mars rocket launch from Mandi?' });
+    expect(missRes.status).toBe(200);
+    expect(missRes.body.found).toBe(false);
+    expect(missRes.body.answer).toContain('Not found');
+    expect(missRes.body.citations).toHaveLength(0);
   });
 });

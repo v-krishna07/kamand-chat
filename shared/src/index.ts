@@ -776,8 +776,87 @@ export const WsSyncResumeAckSchema = z.object({
 export type WsSyncResumeAck = z.infer<typeof WsSyncResumeAckSchema>;
 
 // ============================================================================
-// 10. IIT Mandi Campus Layer Schemas (Phase 7 - Section 13)
+// 10. IIT Mandi Campus Layer Schemas (Phase 7 - Section 12 & 13)
 // ============================================================================
+
+export const ConnectorIdSchema = z.enum([
+  'moodle_lms',
+  'academic_portal',
+  'public_institute',
+  'mandi_weather',
+]);
+export type ConnectorId = z.infer<typeof ConnectorIdSchema>;
+
+export const ConnectMoodleInputSchema = z.object({
+  explicitConsent: z.boolean().refine((v) => v === true, {
+    message: 'You must consent to what is read from Moodle before connecting.',
+  }),
+  mode: z.enum(['token', 'login_once', 'ics_url']).default('token'),
+  token: z.string().trim().max(512).optional(),
+  username: z.string().trim().max(120).optional(),
+  password: z.string().max(256).optional(), // Used once in-memory for login/token.php, NEVER stored or logged
+  icsUrl: z.string().trim().max(1024).optional(),
+});
+export type ConnectMoodleInput = z.infer<typeof ConnectMoodleInputSchema>;
+
+export const ConnectorHealthDTO_Schema = z.object({
+  id: ConnectorIdSchema,
+  name: z.string(),
+  description: z.string(),
+  status: z.enum(['connected', 'degraded_hidden', 'disconnected']),
+  uiVisible: z.boolean(),
+  failureCount: z.number().int().nonnegative(),
+  lastSyncAt: z.string().nullable(),
+  nextRetryAt: z.string().nullable(),
+  lastError: z.string().nullable(),
+  sourceMode: z.enum(['official_api', 'ics_export', 'public_cache', 'admin_data', 'demo_fixtures', 'off']),
+});
+export type ConnectorHealthDTO = z.infer<typeof ConnectorHealthDTO_Schema>;
+
+export const TimetableSlotInputSchema = z.object({
+  courseCode: z.string().trim().min(2).max(20).transform((v) => v.toUpperCase()),
+  courseTitle: z.string().trim().min(2).max(100),
+  dayOfWeek: z.enum(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']),
+  startTime: z.string().regex(/^\d{2}:\d{2}$/, 'Use HH:MM 24h format'),
+  endTime: z.string().regex(/^\d{2}:\d{2}$/, 'Use HH:MM 24h format'),
+  roomCode: z.string().trim().min(1).max(30).transform((v) => v.toUpperCase()),
+});
+export type TimetableSlotInput = z.infer<typeof TimetableSlotInputSchema>;
+
+export const CampusDatumCategorySchema = z.enum([
+  'mess_menu',
+  'bus_schedule',
+  'notice',
+  'calendar',
+  'helpline',
+  'lost_found',
+  'ride_share',
+  'marketplace',
+  'mess_poll',
+  'club_event',
+  'study_buddy',
+  'peer_note',
+  'anonymous_feedback',
+  'sos_alert',
+]);
+export type CampusDatumCategory = z.infer<typeof CampusDatumCategorySchema>;
+
+export const CreateCampusDatumInputSchema = z.object({
+  category: CampusDatumCategorySchema,
+  title: z.string().trim().min(2).max(140),
+  subtitle: z.string().trim().max(140).optional().default(''),
+  body: z.string().trim().min(1).max(2000),
+  locationCode: z.string().trim().max(40).optional().default(''),
+  eventTime: z.string().trim().max(80).optional().default(''),
+});
+export type CreateCampusDatumInput = z.infer<typeof CreateCampusDatumInputSchema>;
+
+export const GroundedCampusAiQuerySchema = z.object({
+  question: z.string().trim().min(2).max(500),
+  includePersonalConsentedData: z.boolean().default(true),
+});
+export type GroundedCampusAiQuery = z.infer<typeof GroundedCampusAiQuerySchema>;
+
 
 export const CampusConnectorHealthSchema = z.object({
   id: z.string(),

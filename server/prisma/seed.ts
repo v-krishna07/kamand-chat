@@ -409,13 +409,13 @@ async function main() {
   const existingSlotsCount = await prisma.timetableSlot.count();
   if (existingSlotsCount === 0) {
     const defaultSlots = [
-      { courseId: cs302.id, dayOfWeek: 'Monday', startTime: '09:00', endTime: '09:50', location: 'A1-NKN', title: 'CS302: Data Structures', slotCode: 'A' },
-      { courseId: cs307.id, dayOfWeek: 'Monday', startTime: '10:00', endTime: '10:50', location: 'B-19', title: 'CS307: Operating Systems', slotCode: 'B' },
-      { courseId: cs302.id, dayOfWeek: 'Wednesday', startTime: '09:00', endTime: '09:50', location: 'A1-NKN', title: 'CS302: Data Structures', slotCode: 'A' },
-      { courseId: cs307.id, dayOfWeek: 'Wednesday', startTime: '14:00', endTime: '17:00', location: 'SC-Lab 2', title: 'CS307: OS Lab', slotCode: 'B' },
-      { courseId: cs302.id, dayOfWeek: 'Friday', startTime: '09:00', endTime: '09:50', location: 'A1-NKN', title: 'CS302: Data Structures', slotCode: 'A' },
-      { courseId: ee201.id, dayOfWeek: 'Tuesday', startTime: '11:00', endTime: '11:50', location: 'A2-201', title: 'EE201: Signals & Systems', slotCode: 'C' },
-      { courseId: ee201.id, dayOfWeek: 'Thursday', startTime: '11:00', endTime: '11:50', location: 'A2-201', title: 'EE201: Signals & Systems', slotCode: 'C' },
+      { userId: aravind.id, courseId: cs302.id, dayOfWeek: 'Monday', startTime: '09:00', endTime: '09:50', location: 'A1-NKN', title: 'CS302: Data Structures', slotCode: 'A' },
+      { userId: aravind.id, courseId: cs307.id, dayOfWeek: 'Monday', startTime: '10:00', endTime: '10:50', location: 'B-19', title: 'CS307: Operating Systems', slotCode: 'B' },
+      { userId: aravind.id, courseId: cs302.id, dayOfWeek: 'Wednesday', startTime: '09:00', endTime: '09:50', location: 'A1-NKN', title: 'CS302: Data Structures', slotCode: 'A' },
+      { userId: aravind.id, courseId: cs307.id, dayOfWeek: 'Wednesday', startTime: '14:00', endTime: '17:00', location: 'SC-Lab 2', title: 'CS307: OS Lab', slotCode: 'B' },
+      { userId: aravind.id, courseId: cs302.id, dayOfWeek: 'Friday', startTime: '09:00', endTime: '09:50', location: 'A1-NKN', title: 'CS302: Data Structures', slotCode: 'A' },
+      { userId: aravind.id, courseId: ee201.id, dayOfWeek: 'Tuesday', startTime: '11:00', endTime: '11:50', location: 'A2-201', title: 'EE201: Signals & Systems', slotCode: 'C' },
+      { userId: aravind.id, courseId: ee201.id, dayOfWeek: 'Thursday', startTime: '11:00', endTime: '11:50', location: 'A2-201', title: 'EE201: Signals & Systems', slotCode: 'C' },
     ];
     for (const s of defaultSlots) {
       await prisma.timetableSlot.create({ data: s });
@@ -553,6 +553,109 @@ async function main() {
     for (const s of services) {
       await prisma.campusService.create({ data: s });
     }
+  }
+
+  // Phase 7: Seed Public Campus Data (Pine Mess, Kamand Bus, Notices, Helplines & Campus Services)
+  const existingCampusCount = await prisma.campusDatum.count();
+  if (existingCampusCount === 0) {
+    await prisma.campusDatum.createMany({
+      data: [
+        {
+          category: 'mess_menu',
+          title: 'Pine Mess (Pure Vegetarian · North Campus)',
+          subtitle: 'Today’s Menu · Lunch & Dinner',
+          body: 'Lunch: Paneer Butter Masala, Moong Dal Tadka, Jeera Rice, Hot Chapatis, Sprouted Chana Salad, Curd. Dinner: Mix Veg, Dal Makhani, Gulab Jamun, Warm Milk.',
+          locationCode: 'PINE-MESS',
+          authorId: superAdmin.id,
+        },
+        {
+          category: 'bus_schedule',
+          title: 'North Campus ↔ South Campus ↔ Mandi Town Shuttle',
+          subtitle: 'Every 30 mins from B-19 / Gate 1',
+          body: 'Next departures from North Campus Gate: 09:00, 09:30, 10:00, 12:30, 14:00, 17:30, 19:00, 21:00. Mandi Bus Stand Express: 16:30 & 18:15.',
+          locationCode: 'GATE-1',
+          authorId: superAdmin.id,
+        },
+        {
+          category: 'notice',
+          title: 'First Commit 24h Hackathon Submission Reminder',
+          subtitle: 'Kamand Prompt · Programming Club IIT Mandi',
+          body: 'Ensure your GitHub repository remains private during the 24h sprint and make it public at final submission along with your YouTube demo and Drive PPT links.',
+          locationCode: 'A13-LH1',
+          authorId: superAdmin.id,
+        },
+        {
+          category: 'helpline',
+          title: 'IIT Mandi Campus Medical Center & Security Helpline',
+          subtitle: '24×7 Emergency Support',
+          body: 'Medical Unit (South/North Campus): 01905-267111 · Main Gate Security Control Room: 01905-267009.',
+          locationCode: 'HOSPITAL',
+          authorId: superAdmin.id,
+        },
+        {
+          category: 'lost_found',
+          title: 'Found: Casio Scientific Calculator FX-991EX',
+          subtitle: 'Found near Library Reading Room 2nd Floor',
+          body: 'Left on the corner desk after the IC-112 tutorial. Ping @priya or pick up from A-12 common room.',
+          locationCode: 'LIBRARY',
+          authorId: priya.id,
+        },
+        {
+          category: 'ride_share',
+          title: 'Cab Share: IIT Mandi → Chandigarh Airport (Saturday 6 AM)',
+          subtitle: '2 seats available in Innova',
+          body: 'Leaving from North Campus B-19 at 06:00 AM sharp. Splitting fare 4 ways.',
+          locationCode: 'B-19',
+          eventTime: 'Saturday 06:00 AM',
+          authorId: rohan.id,
+        },
+        {
+          category: 'club_event',
+          title: 'Robotics Club: ESP32 Autonomous Drone Workshop',
+          subtitle: 'SNTC Tinkering Lab · Tomorrow 5:30 PM',
+          body: 'Hands-on session covering ESP32 Wi-Fi telemetry, PID flight tuning, and sensor debugging.',
+          locationCode: 'A17-LAB2',
+          eventTime: 'Tomorrow 17:30',
+          authorId: aravind.id,
+        },
+      ],
+    });
+  }
+
+  // Seed Timetable Slots for Aravind
+  const existingAravindSlots = await prisma.timetableSlot.count({ where: { userId: aravind.id } });
+  if (existingAravindSlots === 0) {
+    await prisma.timetableSlot.createMany({
+      data: [
+        {
+          userId: aravind.id,
+          courseCode: 'IC-112',
+          courseTitle: 'Calculus',
+          dayOfWeek: 'Wed',
+          startTime: '09:00',
+          endTime: '09:55',
+          roomCode: 'A13-LH1',
+        },
+        {
+          userId: aravind.id,
+          courseCode: 'IC-152',
+          courseTitle: 'Computing and Data Science',
+          dayOfWeek: 'Wed',
+          startTime: '11:00',
+          endTime: '11:55',
+          roomCode: 'A17-LAB2',
+        },
+        {
+          userId: aravind.id,
+          courseCode: 'IC-131',
+          courseTitle: 'Applied Electronics for Engineers',
+          dayOfWeek: 'Wed',
+          startTime: '14:00',
+          endTime: '15:55',
+          roomCode: 'A13-LH2',
+        },
+      ],
+    });
   }
 
   console.log('Seed completed successfully.');

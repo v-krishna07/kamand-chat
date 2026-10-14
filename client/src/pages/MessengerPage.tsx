@@ -5,8 +5,8 @@ import { useChatStore } from '../store/useChatStore.js';
 import { Sidebar, type PrimarySection } from '../components/Sidebar.js';
 import { ChatView } from '../components/ChatView.js';
 import { CommunityWorkspace } from '../components/CommunityWorkspace.js';
-import { CampusDashboard } from '../components/CampusDashboard.js';
 import { CallOverlay } from '../components/CallOverlay.js';
+import { CampusHub } from '../components/CampusHub.js';
 
 interface MessengerPageProps {
   currentUser: UserSummary;
@@ -35,13 +35,15 @@ export const MessengerPage: React.FC<MessengerPageProps> = ({ currentUser, onLog
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-950">
-      {/* Global E2EE Voice/Video Call Overlay & Draggable PiP */}
       <CallOverlay />
 
-      {/* Left Pane: Navigation & Direct Chats / Contacts / Status */}
       <div
         className={`${
-          activeConversation && activeSection === 'chats' ? 'hidden md:flex' : 'flex'
+          (activeConversation && activeSection === 'chats') ||
+          activeSection === 'communities' ||
+          activeSection === 'campus'
+            ? 'hidden md:flex'
+            : 'flex'
         } h-full w-full md:w-auto flex-shrink-0`}
       >
         <Sidebar
@@ -52,16 +54,19 @@ export const MessengerPage: React.FC<MessengerPageProps> = ({ currentUser, onLog
         />
       </div>
 
-      {/* Main Content Area: Campus Dashboard, Structured Community Workspace or 1:1 ChatView */}
       <main
         className={`${
-          activeSection === 'communities' || activeSection === 'campus' || activeConversation ? 'flex' : 'hidden md:flex'
+          activeSection === 'communities' ||
+          activeSection === 'campus' ||
+          activeConversation
+            ? 'flex'
+            : 'hidden md:flex'
         } flex-1 h-full min-w-0 bg-slate-950`}
       >
-        {activeSection === 'campus' ? (
-          <CampusDashboard currentUser={currentUser} />
-        ) : activeSection === 'communities' ? (
+        {activeSection === 'communities' ? (
           <CommunityWorkspace currentUser={currentUser} />
+        ) : activeSection === 'campus' ? (
+          <CampusHub />
         ) : activeConversation ? (
           <ChatView
             conversation={activeConversation}
@@ -74,10 +79,11 @@ export const MessengerPage: React.FC<MessengerPageProps> = ({ currentUser, onLog
               <MessageSquare className="w-8 h-8" />
             </div>
             <h2 className="text-heading text-xl text-slate-100">
-              Select a conversation, open Groups or Campus
+              Select a conversation, open Groups, or explore Campus
             </h2>
             <p className="text-sm text-slate-400 max-w-sm mt-1">
-              Real-time 1:1 messaging, structured IIT Mandi community channels, and campus services.
+              Real-time E2EE messaging, voice/video calls, structured IIT Mandi channels, and
+              degrade-gracefully campus connectors.
             </p>
           </div>
         )}
@@ -85,4 +91,3 @@ export const MessengerPage: React.FC<MessengerPageProps> = ({ currentUser, onLog
     </div>
   );
 };
-

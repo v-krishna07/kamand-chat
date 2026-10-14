@@ -1,37 +1,37 @@
 import { test, expect } from '@playwright/test';
 
-test('Phase 7 E2E: Navigate to Campus Tab, view Today Dashboard, inspect Valley Buses, check Mess Menu, and ask Grounded Campus AI with Citations', async ({
+test('Phase 7 E2E: Open Campus Hub, connect Moodle LMS with consent, view deadlines, disconnect to purge cache, and query Grounded Campus AI', async ({
   page,
 }) => {
   await page.goto('/');
   await page.getByRole('button', { name: '@aravind' }).click();
   await page.getByRole('button', { name: 'Sign In to Kamand Chat' }).click();
 
-  // 1. Click Campus Tab in navigation bar
-  await page.getByRole('tab', { name: 'Campus' }).click();
-  await expect(page.getByText('IIT Mandi Campus')).toBeVisible();
+  // 1. Navigate to Campus tab
+  await page.getByRole('tab', { name: /Campus/i }).click();
+  await expect(page.getByText('IIT Mandi Campus Hub')).toBeVisible();
+  await expect(page.getByText(/B23101/i)).toBeVisible();
 
-  // 2. Verify Today Dashboard Hero Cards
-  await expect(page.getByText(/Next Class Today/i)).toBeVisible();
-  await expect(page.getByText(/Next Bus/i)).toBeVisible();
-  await expect(page.getByText(/Mess Meal/i)).toBeVisible();
+  // 2. Initially Moodle widget is hidden until connected
+  await expect(page.getByTestId('moodle-dashboard-widget')).toHaveCount(0);
 
-  // 3. Switch to Buses & Commute Tab
-  await page.getByRole('button', { name: 'Buses & Commute' }).click();
-  await expect(page.getByText('North Campus → South Campus')).toBeVisible();
-  await expect(page.getByText('South Campus → North Campus')).toBeVisible();
+  // 3. Connect Moodle with explicit consent
+  await page.getByRole('button', { name: 'Connect Moodle' }).click();
+  await expect(page.getByText('What is read from your Moodle account:')).toBeVisible();
+  await page.getByRole('button', { name: 'Consent & Connect Moodle LMS' }).click();
 
-  // 4. Switch to Mess Menu Tab
-  await page.getByRole('button', { name: 'Mess Menu' }).click();
-  await expect(page.getByText('Oak Mess')).toBeVisible();
-  await expect(page.getByText(/breakfast|lunch|dinner/i).first()).toBeVisible();
+  // 4. Verify Moodle deadlines and courses appear
+  await expect(page.getByTestId('moodle-dashboard-widget')).toBeVisible();
+  await expect(page.getByText(/IC-152 · Computing and Data Science/i)).toBeVisible();
 
-  // 5. Switch to Campus AI (Citations) Tab and ask grounded campus question
-  await page.getByRole('button', { name: /Campus AI/i }).click();
-  await page.getByPlaceholder(/Ask about IIT Mandi buses/i).fill('Tell me about the electric buses in Kamand');
-  await page.getByRole('button', { name: 'Ask' }).click();
+  // 5. Ask Grounded Campus AI about Pine Mess
+  await page
+    .getByPlaceholder(/Ask about Pine Mess menu/i)
+    .fill('What is served at Pine Mess?');
+  await page.getByRole('button', { name: 'Ask Campus AI' }).click();
+  await expect(page.getByText(/Paneer Butter Masala/i).first()).toBeVisible();
 
-  // 6. Verify Grounded AI Answer & Citations are visible
-  await expect(page.getByText(/Electric buses run regularly between North Campus/i)).toBeVisible();
-  await expect(page.getByText(/IIT Mandi Transit & Electric Bus Schedule/i)).toBeVisible();
+  // 6. Click "Disconnect & Delete Cache" -> Moodle widget hides immediately
+  await page.getByRole('button', { name: 'Disconnect & Delete Cache' }).click();
+  await expect(page.getByTestId('moodle-dashboard-widget')).toHaveCount(0);
 });
