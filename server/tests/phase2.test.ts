@@ -54,6 +54,13 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   authRateLimiter.reset();
+  await prisma.joinRequest.deleteMany();
+  await prisma.invite.deleteMany();
+  await prisma.channelPermissionOverride.deleteMany();
+  await prisma.channel.deleteMany();
+  await prisma.category.deleteMany();
+  await prisma.communityMember.deleteMany();
+  await prisma.community.deleteMany();
   await prisma.statusView.deleteMany();
   await prisma.status.deleteMany();
   await prisma.readReceipt.deleteMany();

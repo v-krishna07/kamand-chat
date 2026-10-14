@@ -4,7 +4,7 @@ import { hashPassword } from '../src/security/password.js';
 import { config } from '../src/config.js';
 
 async function main() {
-  console.log('Seeding Kamand Chat database (Phase 1 + Phase 2 Social Layer)...');
+  console.log('Seeding Kamand Chat database (Phase 1–3: Core, Social & Structured Communities)...');
 
   const commonPasswordHash = await hashPassword(config.adminPassword);
 
@@ -68,32 +68,20 @@ async function main() {
     },
   });
 
-  // Seed accepted contact between Aravind and Priya, and incoming pending request from Rohan to Aravind
+  // Contacts
   await prisma.contact.upsert({
-    where: {
-      requesterId_targetId: { requesterId: aravind.id, targetId: priya.id },
-    },
+    where: { requesterId_targetId: { requesterId: aravind.id, targetId: priya.id } },
     update: { status: 'accepted' },
-    create: {
-      requesterId: aravind.id,
-      targetId: priya.id,
-      status: 'accepted',
-    },
+    create: { requesterId: aravind.id, targetId: priya.id, status: 'accepted' },
   });
 
   await prisma.contact.upsert({
-    where: {
-      requesterId_targetId: { requesterId: rohan.id, targetId: aravind.id },
-    },
+    where: { requesterId_targetId: { requesterId: rohan.id, targetId: aravind.id } },
     update: {},
-    create: {
-      requesterId: rohan.id,
-      targetId: aravind.id,
-      status: 'pending',
-    },
+    create: { requesterId: rohan.id, targetId: aravind.id, status: 'pending' },
   });
 
-  // Seed 24h expiring Statuses
+  // 24h Statuses
   const existingStatuses = await prisma.status.count({ where: { authorId: priya.id } });
   if (existingStatuses === 0) {
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -117,13 +105,10 @@ async function main() {
     });
   }
 
-  // Create a seeded 1:1 conversation between Aravind and Priya
+  // 1:1 Conversation between Aravind and Priya
   const [firstId, secondId] = [aravind.id, priya.id].sort();
   const directPairKey = `${firstId}:${secondId}`;
-
-  const existingConv = await prisma.conversation.findUnique({
-    where: { directPairKey },
-  });
+  const existingConv = await prisma.conversation.findUnique({ where: { directPairKey } });
 
   if (!existingConv) {
     const conv = await prisma.conversation.create({
@@ -179,10 +164,150 @@ async function main() {
     });
   }
 
-  console.log('Seed completed:', {
-    superAdmin: superAdmin.username,
-    demoUsers: [aravind.username, priya.username, rohan.username],
-  });
+  // Phase 3: Seed Structured Community ("IIT Mandi") -> Categories ("Clubs", "Hostels", "Courses") -> Channels
+  const existingComm = await prisma.community.findUnique({ where: { slug: 'iit-mandi' } });
+  if (!existingComm) {
+    const allUsers = [
+      { id: superAdmin.id, role: 'owner' },
+      { id: aravind.id, role: 'admin' },
+      { id: rohan.id, role: 'moderator' },
+      { id: priya.id, role: 'member' },
+    ];
+
+    const comm = await prisma.community.create({
+      data: {
+        name: 'IIT Mandi',
+        slug: 'iit-mandi',
+        description: 'Official campus workspace for Clubs, Hostels, and Courses at IIT Mandi.',
+        isPrivate: false,
+        members: {
+          create: allUsers.map((u) => ({ userId: u.id, role: u.role })),
+        },
+      },
+    });
+
+    const catClubs = await prisma.category.create({
+      data: { communityId: comm.id, name: 'Clubs', position: 0 },
+    });
+    const catHostels = await prisma.category.create({
+      data: { communityId: comm.id, name: 'Hostels', position: 1 },
+    });
+    const catCourses = await prisma.category.create({
+      data: { communityId: comm.id, name: 'Courses', position: 2 },
+    });
+
+    const createSeededChannel = async (
+      categoryId: string,
+      name: string,
+      topic: string,
+      type: 'text' | 'announcement' | 'voice',
+      position: number
+    ) => {
+      const conv = await prisma.conversation.create({
+        data: {
+          type: 'group',
+          title: `#${name}`,
+          memberships: {
+            create: allUsers.map((u) => ({ userId: u.id, role: u.role })),
+          },
+        },
+      });
+      return prisma.channel.create({
+        data: {
+          communityId: comm.id,
+          categoryId,
+          conversationId: conv.id,
+          name,
+          topic,
+          type,
+          position,
+        },
+      });
+    };
+
+    const chAnnouncements = await createSeededChannel(
+      catClubs.id,
+      'announcements',
+      'Official Kamand Prompt & SNTC announcements (Moderators & Admins post)',
+      'announcement',
+      0
+    );
+    const chKamandPrompt = await createSeededChannel(
+      catClubs.id,
+      'kamand-prompt',
+      'Programming Club IIT Mandi · First Commit 24h Hackathon HQ',
+      'text',
+      1
+    );
+    await createSeededChannel(
+      catHostels.id,
+      'b19-north-campus',
+      'Hostel B-19 & North Campus discussions',
+      'text',
+      0
+    );
+    await createSeededChannel(
+      catCourses.id,
+      'ic-112-calculus',
+      'IC-112 tutorials, lecture notes & exam prep',
+      'text',
+      0
+    );
+
+    // Seed an announcement and a threaded discussion in #kamand-prompt
+    await prisma.conversation.update({
+      where: { id: chAnnouncements.conversationId },
+      data: { lastSeq: 1 },
+    });
+    await prisma.message.create({
+      data: {
+        id: crypto.randomUUID(),
+        conversationId: chAnnouncements.conversationId,
+        senderId: rohan.id,
+        body: 'Welcome to First Commit! Keep your repo private until submission and verify real-time WebSocket delivery.',
+        seq: 1,
+        status: 'sent',
+      },
+    });
+
+    const rootId = crypto.randomUUID();
+    await prisma.conversation.update({
+      where: { id: chKamandPrompt.conversationId },
+      data: { lastSeq: 2 },
+    });
+    await prisma.message.create({
+      data: {
+        id: rootId,
+        conversationId: chKamandPrompt.conversationId,
+        senderId: aravind.id,
+        body: 'Thread: Share your First Commit team architecture & tech stack below!',
+        seq: 1,
+        status: 'sent',
+      },
+    });
+    await prisma.message.create({
+      data: {
+        id: crypto.randomUUID(),
+        conversationId: chKamandPrompt.conversationId,
+        senderId: priya.id,
+        body: 'We are using React + Motion springs, Socket.IO with sequence numbers, and Prisma SQLite!',
+        threadRootId: rootId,
+        seq: 2,
+        status: 'sent',
+      },
+    });
+
+    await prisma.invite.create({
+      data: {
+        code: 'KAMAND26',
+        communityId: comm.id,
+        creatorId: aravind.id,
+        maxUses: 100,
+      },
+    });
+  }
+
+  console.log('Seed completed successfully.');
 }
 
 main()

@@ -76,7 +76,11 @@ export const UpdateProfileInputSchema = z.object({
     .trim()
     .max(2048)
     .refine(
-      (val) => val === '' || val.startsWith('data:image/') || val.startsWith('https://') || val.startsWith('http://'),
+      (val) =>
+        val === '' ||
+        val.startsWith('data:image/') ||
+        val.startsWith('https://') ||
+        val.startsWith('http://'),
       'Avatar must be a valid image URL or data URI'
     )
     .nullable()
@@ -127,7 +131,7 @@ export const ContactDTO_Schema = z.object({
 export type ContactDTO = z.infer<typeof ContactDTO_Schema>;
 
 // ============================================================================
-// 3. Status / Stories Schemas (24h Expiring, Per-Contact Visibility)
+// 3. Status / Stories Schemas (Phase 2)
 // ============================================================================
 
 export const CreateStatusInputSchema = z.object({
@@ -181,7 +185,7 @@ export const StatusDTO_Schema = z.object({
 export type StatusDTO = z.infer<typeof StatusDTO_Schema>;
 
 // ============================================================================
-// 4. Conversation & Message Schemas
+// 4. Conversation & Message Schemas (Phase 1–3)
 // ============================================================================
 
 export const CreateDirectConversationSchema = z.object({
@@ -213,6 +217,8 @@ export const MessageDTO_Schema = z.object({
     })
     .nullable()
     .optional(),
+  threadRootId: z.string().uuid().nullable().optional(),
+  threadReplyCount: z.number().int().nonnegative().optional().default(0),
   seq: z.number().int().positive(),
   status: z.enum(['sending', 'sent', 'delivered', 'read', 'failed']).default('sent'),
   editedAt: z.string().nullable(),
@@ -242,7 +248,10 @@ export const CursorPaginationQuerySchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ? parseInt(v, 10) : undefined))
-    .refine((v) => v === undefined || (!Number.isNaN(v) && v > 0), 'beforeSeq must be a positive integer'),
+    .refine(
+      (v) => v === undefined || (!Number.isNaN(v) && v > 0),
+      'beforeSeq must be a positive integer'
+    ),
   limit: z
     .string()
     .optional()
@@ -250,7 +259,202 @@ export const CursorPaginationQuerySchema = z.object({
 });
 
 // ============================================================================
-// 5. WebSocket Event Payloads & Acknowledgements
+// 5. Structured Communities, Categories, Channels & Roles (Phase 3)
+// ============================================================================
+
+export const CommunityRoleSchema = z.enum([
+  'owner',
+  'admin',
+  'moderator',
+  'member',
+  'readonly',
+]);
+
+export type CommunityRole = z.infer<typeof CommunityRoleSchema>;
+
+export const ChannelTypeSchema = z.enum(['text', 'announcement', 'voice']);
+export type ChannelType = z.infer<typeof ChannelTypeSchema>;
+
+export const CreateCommunityInputSchema = z.object({
+  name: z.string().trim().min(2, 'Community name must be at least 2 characters').max(60),
+  slug: z
+    .string()
+    .trim()
+    .min(2)
+    .max(40)
+    .regex(/^[a-z0-9-]+$/, 'Slug must be lowercase letters, numbers, and hyphens'),
+  description: z.string().trim().max(300).optional().default(''),
+  isPrivate: z.boolean().optional().default(false),
+});
+
+export type CreateCommunityInput = z.infer<typeof CreateCommunityInputSchema>;
+
+export const CreateCategoryInputSchema = z.object({
+  name: z.string().trim().min(1, 'Category name is required').max(45),
+});
+
+export type CreateCategoryInput = z.infer<typeof CreateCategoryInputSchema>;
+
+export const CreateChannelInputSchema = z.object({
+  categoryId: z.string().uuid('Invalid category ID'),
+  name: z
+    .string()
+    .trim()
+    .min(1, 'Channel name is required')
+    .max(45)
+    .transform((v) => v.toLowerCase().replace(/\s+/g, '-')),
+  topic: z.string().trim().max(250).optional().default(''),
+  type: ChannelTypeSchema.default('text'),
+});
+
+export type CreateChannelInput = z.infer<typeof CreateChannelInputSchema>;
+
+export const UpdateChannelInputSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1)
+    .max(45)
+    .transform((v) => v.toLowerCase().replace(/\s+/g, '-'))
+    .optional(),
+  topic: z.string().trim().max(250).optional(),
+  isPinned: z.boolean().optional(),
+  isArchived: z.boolean().optional(),
+});
+
+export type UpdateChannelInput = z.infer<typeof UpdateChannelInputSchema>;
+
+export const ChannelPermissionOverrideInputSchema = z.object({
+  role: CommunityRoleSchema,
+  canView: z.boolean(),
+  canSend: z.boolean(),
+});
+
+export type ChannelPermissionOverrideInput = z.infer<typeof ChannelPermissionOverrideInputSchema>;
+
+export const ReorderCategoriesInputSchema = z.object({
+  orderedCategoryIds: z.array(z.string().uuid()).min(1),
+});
+
+export const ReorderChannelsInputSchema = z.object({
+  categoryId: z.string().uuid(),
+  orderedChannelIds: z.array(z.string().uuid()).min(1),
+});
+
+export const CreateInviteInputSchema = z.object({
+  expiresInHours: z.number().int().min(1).max(720).optional().default(168),
+  maxUses: z.number().int().min(1).max(1000).nullable().optional().default(null),
+});
+
+export type CreateInviteInput = z.infer<typeof CreateInviteInputSchema>;
+
+export const CreateJoinRequestInputSchema = z.object({
+  note: z.string().trim().max(240).optional().default(''),
+});
+
+export const RespondJoinRequestInputSchema = z.object({
+  action: z.enum(['approve', 'reject']),
+});
+
+export const UpdateMemberRoleInputSchema = z.object({
+  role: CommunityRoleSchema,
+});
+
+export const UpdateMemberPreferencesInputSchema = z.object({
+  isMuted: z.boolean().optional(),
+  isPinned: z.boolean().optional(),
+  isArchived: z.boolean().optional(),
+});
+
+export const ChannelDTO_Schema = z.object({
+  id: z.string().uuid(),
+  communityId: z.string().uuid(),
+  categoryId: z.string().uuid(),
+  conversationId: z.string().uuid(),
+  name: z.string(),
+  topic: z.string(),
+  type: ChannelTypeSchema,
+  position: z.number().int(),
+  isPinned: z.boolean(),
+  isArchived: z.boolean(),
+  canView: z.boolean(),
+  canSend: z.boolean(),
+  overrides: z.array(
+    z.object({
+      id: z.string().uuid(),
+      role: CommunityRoleSchema,
+      canView: z.boolean(),
+      canSend: z.boolean(),
+    })
+  ),
+});
+
+export type ChannelDTO = z.infer<typeof ChannelDTO_Schema>;
+
+export const CategoryDTO_Schema = z.object({
+  id: z.string().uuid(),
+  communityId: z.string().uuid(),
+  name: z.string(),
+  position: z.number().int(),
+  channels: z.array(ChannelDTO_Schema),
+});
+
+export type CategoryDTO = z.infer<typeof CategoryDTO_Schema>;
+
+export const CommunityMemberDTO_Schema = z.object({
+  id: z.string().uuid(),
+  userId: z.string().uuid(),
+  role: CommunityRoleSchema,
+  isMuted: z.boolean(),
+  isPinned: z.boolean(),
+  isArchived: z.boolean(),
+  joinedAt: z.string(),
+  user: UserSummarySchema,
+});
+
+export type CommunityMemberDTO = z.infer<typeof CommunityMemberDTO_Schema>;
+
+export const CommunityDTO_Schema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  slug: z.string(),
+  description: z.string(),
+  isPrivate: z.boolean(),
+  myRole: CommunityRoleSchema.nullable(),
+  isMuted: z.boolean().optional().default(false),
+  isPinned: z.boolean().optional().default(false),
+  isArchived: z.boolean().optional().default(false),
+  memberCount: z.number().int().nonnegative(),
+  categories: z.array(CategoryDTO_Schema),
+});
+
+export type CommunityDTO = z.infer<typeof CommunityDTO_Schema>;
+
+export const InviteDTO_Schema = z.object({
+  id: z.string().uuid(),
+  code: z.string(),
+  communityId: z.string().uuid(),
+  uses: z.number().int().nonnegative(),
+  maxUses: z.number().int().nullable(),
+  expiresAt: z.string().nullable(),
+  createdAt: z.string(),
+});
+
+export type InviteDTO = z.infer<typeof InviteDTO_Schema>;
+
+export const JoinRequestDTO_Schema = z.object({
+  id: z.string().uuid(),
+  communityId: z.string().uuid(),
+  status: z.enum(['pending', 'approved', 'rejected']),
+  note: z.string(),
+  createdAt: z.string(),
+  user: UserSummarySchema,
+});
+
+export type JoinRequestDTO = z.infer<typeof JoinRequestDTO_Schema>;
+
+// ============================================================================
+// 6. WebSocket Event Payloads & Acknowledgements
 // ============================================================================
 
 export const WsSendMessagePayloadSchema = z.object({
@@ -265,6 +469,7 @@ export const WsSendMessagePayloadSchema = z.object({
   nonce: z.string().max(256).nullable().optional(),
   type: MessageTypeSchema.default('text'),
   replyToId: z.string().uuid().nullable().optional(),
+  threadRootId: z.string().uuid().nullable().optional(),
 });
 
 export type WsSendMessagePayload = z.infer<typeof WsSendMessagePayloadSchema>;
@@ -278,7 +483,13 @@ export const WsSendMessageAckSchema = z.discriminatedUnion('ok', [
   z.object({
     ok: z.literal(false),
     error: z.string(),
-    code: z.enum(['VALIDATION_ERROR', 'FORBIDDEN', 'NOT_FOUND', 'RATE_LIMITED', 'INTERNAL_ERROR']),
+    code: z.enum([
+      'VALIDATION_ERROR',
+      'FORBIDDEN',
+      'NOT_FOUND',
+      'RATE_LIMITED',
+      'INTERNAL_ERROR',
+    ]),
   }),
 ]);
 

@@ -28,12 +28,15 @@ model User {
   sessions            Session[]
   devices             Device[]
   memberships         Membership[]
-  sentMessages        Message[]      @relation("SentMessages")
+  sentMessages        Message[]          @relation("SentMessages")
   readReceipts        ReadReceipt[]
-  contactsInitiated   Contact[]      @relation("ContactRequester")
-  contactsReceived    Contact[]      @relation("ContactTarget")
+  contactsInitiated   Contact[]          @relation("ContactRequester")
+  contactsReceived    Contact[]          @relation("ContactTarget")
   statuses            Status[]
   statusViews         StatusView[]
+  communityMembers    CommunityMember[]
+  createdInvites      Invite[]
+  joinRequests        JoinRequest[]
   auditLogs           AuditLog[]
 
   @@index([username])
@@ -96,6 +99,7 @@ model Conversation {
 
   memberships   Membership[]
   messages      Message[]
+  channel       Channel?
 
   @@index([updatedAt])
 }
@@ -104,7 +108,7 @@ model Membership {
   id                 String       @id @default(uuid())
   conversationId     String
   userId             String
-  role               String       @default("member") // owner | admin | moderator | member
+  role               String       @default("member") // owner | admin | moderator | member | readonly
   lastReadSeq        Int          @default(0)
   lastDeliveredSeq   Int          @default(0)
   joinedAt           DateTime     @default(now())
@@ -126,6 +130,7 @@ model Message {
   nonce          String?
   type           String        @default("text") // text | image | voice | file | system
   replyToId      String?
+  threadRootId   String?
   seq            Int
   status         String        @default("sent") // sent | delivered | read
   editedAt       DateTime?
@@ -136,10 +141,13 @@ model Message {
   sender         User          @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
   replyTo        Message?      @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
   replies        Message[]     @relation("MessageReplies")
+  threadRoot     Message?      @relation("MessageThread", fields: [threadRootId], references: [id], onDelete: Cascade)
+  threadReplies  Message[]     @relation("MessageThread")
   readReceipts   ReadReceipt[]
 
   @@unique([conversationId, seq])
   @@index([conversationId, seq])
+  @@index([threadRootId, seq])
   @@index([senderId])
 }
 
@@ -164,7 +172,7 @@ model Status {
   mediaDataUrl   String?
   bgColor        String       @default("#0284c7")
   visibility     String       @default("contacts") // contacts | custom
-  allowedUserIds String       @default("[]")       // JSON string array of allowed user UUIDs when custom
+  allowedUserIds String       @default("[]")       // JSON string array of allowed user UUIDs
   createdAt      DateTime     @default(now())
   expiresAt      DateTime
 
@@ -187,6 +195,124 @@ model StatusView {
   @@unique([statusId, viewerId])
   @@index([statusId])
   @@index([viewerId])
+}
+
+model Community {
+  id           String            @id @default(uuid())
+  name         String
+  slug         String            @unique
+  description  String            @default("")
+  isPrivate    Boolean           @default(false)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  members      CommunityMember[]
+  categories   Category[]
+  channels     Channel[]
+  invites      Invite[]
+  joinRequests JoinRequest[]
+
+  @@index([slug])
+}
+
+model CommunityMember {
+  id          String    @id @default(uuid())
+  communityId String
+  userId      String
+  role        String    @default("member") // owner | admin | moderator | member | readonly
+  isMuted     Boolean   @default(false)
+  isPinned    Boolean   @default(false)
+  isArchived  Boolean   @default(false)
+  joinedAt    DateTime  @default(now())
+
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([communityId, userId])
+  @@index([userId])
+  @@index([communityId])
+}
+
+model Category {
+  id          String    @id @default(uuid())
+  communityId String
+  name        String
+  position    Int       @default(0)
+  createdAt   DateTime  @default(now())
+
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  channels    Channel[]
+
+  @@index([communityId, position])
+}
+
+model Channel {
+  id             String                      @id @default(uuid())
+  communityId    String
+  categoryId     String
+  conversationId String                      @unique
+  name           String
+  topic          String                      @default("")
+  type           String                      @default("text") // text | announcement | voice
+  position       Int                         @default(0)
+  isPinned       Boolean                     @default(false)
+  isArchived     Boolean                     @default(false)
+  createdAt      DateTime                    @default(now())
+
+  community      Community                   @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  category       Category                    @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  conversation   Conversation                @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  overrides      ChannelPermissionOverride[]
+
+  @@index([categoryId, position])
+  @@index([communityId])
+}
+
+model ChannelPermissionOverride {
+  id        String  @id @default(uuid())
+  channelId String
+  role      String  // owner | admin | moderator | member | readonly
+  canView   Boolean @default(true)
+  canSend   Boolean @default(true)
+
+  channel   Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, role])
+  @@index([channelId])
+}
+
+model Invite {
+  id          String    @id @default(uuid())
+  code        String    @unique
+  communityId String
+  creatorId   String
+  uses        Int       @default(0)
+  maxUses     Int?
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  creator     User      @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@index([code])
+  @@index([communityId])
+}
+
+model JoinRequest {
+  id          String    @id @default(uuid())
+  communityId String
+  userId      String
+  status      String    @default("pending") // pending | approved | rejected
+  note        String    @default("")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([communityId, userId])
+  @@index([communityId, status])
+  @@index([userId])
 }
 
 model AuditLog {

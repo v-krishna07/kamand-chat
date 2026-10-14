@@ -55,6 +55,8 @@ describe('Apple Fluid Interface Physics & Client Message Ordering Suite', () => 
       nonce: null,
       type: 'text',
       replyToId: null,
+      threadRootId: null,
+      threadReplyCount: 0,
       seq: 1,
       status: 'sending',
       editedAt: null,

@@ -1,9 +1,10 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { MessageSquare } from 'lucide-react';
 import type { UserSummary } from '@kamand/shared';
 import { useChatStore } from '../store/useChatStore.js';
-import { Sidebar } from '../components/Sidebar.js';
+import { Sidebar, type PrimarySection } from '../components/Sidebar.js';
 import { ChatView } from '../components/ChatView.js';
+import { CommunityWorkspace } from '../components/CommunityWorkspace.js';
 
 interface MessengerPageProps {
   currentUser: UserSummary;
@@ -19,6 +20,8 @@ export const MessengerPage: React.FC<MessengerPageProps> = ({ currentUser, onLog
     selectConversation,
   } = useChatStore();
 
+  const [activeSection, setActiveSection] = useState<PrimarySection>('chats');
+
   useEffect(() => {
     void loadConversations();
     const cleanup = initRealtime(currentUser);
@@ -30,22 +33,29 @@ export const MessengerPage: React.FC<MessengerPageProps> = ({ currentUser, onLog
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-950">
-      {/* Left Pane: Conversation List (Hidden on mobile when a chat is open) */}
+      {/* Left Pane: Navigation & Direct Chats / Contacts / Status */}
       <div
         className={`${
-          activeConversation ? 'hidden md:flex' : 'flex'
+          activeConversation && activeSection === 'chats' ? 'hidden md:flex' : 'flex'
         } h-full w-full md:w-auto flex-shrink-0`}
       >
-        <Sidebar currentUser={currentUser} onLogout={onLogout} />
+        <Sidebar
+          currentUser={currentUser}
+          activeSection={activeSection}
+          onChangeSection={setActiveSection}
+          onLogout={onLogout}
+        />
       </div>
 
-      {/* Center Pane: Active Conversation or Empty State */}
+      {/* Main Content Area: Either Structured Community Workspace or 1:1 ChatView */}
       <main
         className={`${
-          activeConversation ? 'flex' : 'hidden md:flex'
+          activeSection === 'communities' || activeConversation ? 'flex' : 'hidden md:flex'
         } flex-1 h-full min-w-0 bg-slate-950`}
       >
-        {activeConversation ? (
+        {activeSection === 'communities' ? (
+          <CommunityWorkspace currentUser={currentUser} />
+        ) : activeConversation ? (
           <ChatView
             conversation={activeConversation}
             currentUser={currentUser}
@@ -57,11 +67,11 @@ export const MessengerPage: React.FC<MessengerPageProps> = ({ currentUser, onLog
               <MessageSquare className="w-8 h-8" />
             </div>
             <h2 className="text-heading text-xl text-slate-100">
-              Select a conversation or start a new chat
+              Select a conversation or open Groups
             </h2>
             <p className="text-sm text-slate-400 max-w-sm mt-1">
-              Real-time 1:1 messaging with sequence-verified ordering, swipe-to-reply physics, and
-              offline catch-up.
+              Real-time 1:1 messaging and structured IIT Mandi community channels with threaded
+              replies.
             </p>
           </div>
         )}

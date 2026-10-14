@@ -22,6 +22,7 @@ export function formatMessageDTO(msg: {
   nonce: string | null;
   type: string;
   replyToId: string | null;
+  threadRootId?: string | null;
   seq: number;
   status: string;
   editedAt: Date | null;
@@ -38,6 +39,9 @@ export function formatMessageDTO(msg: {
     body: string;
     sender: { displayName: string };
   } | null;
+  _count?: {
+    threadReplies?: number;
+  };
 }): MessageDTO {
   return {
     id: msg.id,
@@ -61,6 +65,8 @@ export function formatMessageDTO(msg: {
           body: msg.replyTo.body.slice(0, 120),
         }
       : null,
+    threadRootId: msg.threadRootId ?? null,
+    threadReplyCount: msg._count?.threadReplies ?? 0,
     seq: msg.seq,
     status: (msg.status as MessageDTO['status']) || 'sent',
     editedAt: msg.editedAt ? msg.editedAt.toISOString() : null,
@@ -76,6 +82,7 @@ export async function buildConversationSummary(
   const conv = await prisma.conversation.findUnique({
     where: { id: conversationId },
     include: {
+      channel: { select: { id: true } },
       memberships: {
         include: { user: true },
       },
@@ -91,12 +98,16 @@ export async function buildConversationSummary(
               sender: { select: { displayName: true } },
             },
           },
+          _count: {
+            select: { threadReplies: true },
+          },
         },
       },
     },
   });
 
-  if (!conv) return null;
+  // Exclude community channel conversations from the 1:1 sidebar list
+  if (!conv || conv.channel) return null;
 
   const viewerMembership = conv.memberships.find((m) => m.userId === viewerUserId);
   if (!viewerMembership) return null;
@@ -262,6 +273,9 @@ conversationsRouter.get('/:id/messages', requireAuth, async (req, res, next) => 
           include: {
             sender: { select: { displayName: true } },
           },
+        },
+        _count: {
+          select: { threadReplies: true },
         },
       },
     });

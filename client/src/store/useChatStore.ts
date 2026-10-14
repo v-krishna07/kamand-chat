@@ -419,6 +419,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }
         : null,
       seq: maxSeq + 100_000,
+      threadRootId: null,
+      threadReplyCount: 0,
       status: 'sending',
       editedAt: null,
       deletedAt: null,

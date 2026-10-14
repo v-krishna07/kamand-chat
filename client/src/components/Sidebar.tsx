@@ -8,6 +8,7 @@ import {
   Users,
   CircleDot,
   Settings,
+  Layers,
 } from 'lucide-react';
 import type { UserSummary } from '@kamand/shared';
 import { useChatStore } from '../store/useChatStore.js';
@@ -18,12 +19,21 @@ import { ContactsPanel } from './ContactsPanel.js';
 import { StatusTray } from './StatusTray.js';
 import { ProfileSheet } from './ProfileSheet.js';
 
+export type PrimarySection = 'chats' | 'communities' | 'contacts' | 'status';
+
 interface SidebarProps {
   currentUser: UserSummary;
+  activeSection: PrimarySection;
+  onChangeSection: (section: PrimarySection) => void;
   onLogout: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ currentUser, onLogout }) => {
+export const Sidebar: React.FC<SidebarProps> = ({
+  currentUser,
+  activeSection,
+  onChangeSection,
+  onLogout,
+}) => {
   const {
     conversations,
     activeConversationId,
@@ -35,7 +45,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser, onLogout }) => {
 
   const { contacts, statuses, loadContacts, loadStatuses } = useSocialStore();
 
-  const [activeTab, setActiveTab] = useState<'chats' | 'contacts' | 'status'>('chats');
   const [filterQuery, setFilterQuery] = useState('');
   const [isNewChatOpen, setIsNewChatOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -90,7 +99,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser, onLogout }) => {
 
   return (
     <aside className="flex flex-col h-full w-full md:w-80 lg:w-96 border-r border-white/10 bg-slate-950 select-none">
-      {/* Top Header + Specific Navigation Tabs (§16 Direct, specific labels) */}
+      {/* Top Header + Specific Navigation Tabs (§16) */}
       <div className="px-4 pt-4 pb-3 glass-chrome border-b border-white/10 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -109,19 +118,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser, onLogout }) => {
           </button>
         </div>
 
-        {/* Specific Navigation Segmented Bar: Chats | Contacts | Status */}
+        {/* Specific Navigation Bar: Chats | Communities | Contacts | Status */}
         <div
-          className="grid grid-cols-3 gap-1 p-1 rounded-2xl bg-slate-900/90 border border-white/10"
+          className="grid grid-cols-4 gap-1 p-1 rounded-2xl bg-slate-900/90 border border-white/10"
           role="tablist"
           aria-label="Primary sections"
         >
           <button
             type="button"
             role="tab"
-            aria-selected={activeTab === 'chats'}
-            onClick={() => setActiveTab('chats')}
-            className={`fluid-press py-1.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 ${
-              activeTab === 'chats'
+            aria-selected={activeSection === 'chats'}
+            onClick={() => onChangeSection('chats')}
+            className={`fluid-press py-1.5 rounded-xl text-[11px] font-semibold flex items-center justify-center gap-1 ${
+              activeSection === 'chats'
                 ? 'bg-sky-500 text-white shadow-xs'
                 : 'text-slate-400 hover:text-white'
             }`}
@@ -133,10 +142,25 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser, onLogout }) => {
           <button
             type="button"
             role="tab"
-            aria-selected={activeTab === 'contacts'}
-            onClick={() => setActiveTab('contacts')}
-            className={`fluid-press py-1.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 ${
-              activeTab === 'contacts'
+            aria-selected={activeSection === 'communities'}
+            onClick={() => onChangeSection('communities')}
+            className={`fluid-press py-1.5 rounded-xl text-[11px] font-semibold flex items-center justify-center gap-1 ${
+              activeSection === 'communities'
+                ? 'bg-sky-500 text-white shadow-xs'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            <span>Groups</span>
+          </button>
+
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeSection === 'contacts'}
+            onClick={() => onChangeSection('contacts')}
+            className={`fluid-press py-1.5 rounded-xl text-[11px] font-semibold flex items-center justify-center gap-1 ${
+              activeSection === 'contacts'
                 ? 'bg-sky-500 text-white shadow-xs'
                 : 'text-slate-400 hover:text-white'
             }`}
@@ -153,23 +177,21 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser, onLogout }) => {
           <button
             type="button"
             role="tab"
-            aria-selected={activeTab === 'status'}
-            onClick={() => setActiveTab('status')}
-            className={`fluid-press py-1.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 ${
-              activeTab === 'status'
+            aria-selected={activeSection === 'status'}
+            onClick={() => onChangeSection('status')}
+            className={`fluid-press py-1.5 rounded-xl text-[11px] font-semibold flex items-center justify-center gap-1 ${
+              activeSection === 'status'
                 ? 'bg-sky-500 text-white shadow-xs'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
             <CircleDot className="w-3.5 h-3.5" />
             <span>Status</span>
-            {unviewedStatusCount > 0 && (
-              <span className="w-2 h-2 rounded-full bg-sky-300" />
-            )}
+            {unviewedStatusCount > 0 && <span className="w-2 h-2 rounded-full bg-sky-300" />}
           </button>
         </div>
 
-        {activeTab === 'chats' && (
+        {activeSection === 'chats' && (
           <div className="relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
@@ -185,12 +207,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser, onLogout }) => {
       </div>
 
       {/* Tab Body */}
-      {activeTab === 'contacts' ? (
+      {activeSection === 'contacts' ? (
         <ContactsPanel
           currentUser={currentUser}
-          onOpenChat={() => setActiveTab('chats')}
+          onOpenChat={() => onChangeSection('chats')}
         />
-      ) : activeTab === 'status' ? (
+      ) : activeSection === 'status' ? (
         <StatusTray currentUser={currentUser} />
       ) : (
         <div
@@ -202,21 +224,25 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser, onLogout }) => {
             <div className="p-8 text-center">
               <p className="text-sm text-slate-300 font-medium">No conversations yet</p>
               <p className="text-xs text-slate-500 mt-1">
-                Tap “New Chat” or open “Contacts” to connect with anyone on IIT Mandi campus.
+                Tap “New Chat” or open “Groups” to join IIT Mandi channels.
               </p>
             </div>
           ) : (
             filteredConversations.map((conv) => {
               const peer =
                 conv.participants.find((p) => p.id !== currentUser.id) ?? conv.participants[0]!;
-              const isSelected = conv.id === activeConversationId;
+              const isSelected =
+                activeSection === 'chats' && conv.id === activeConversationId;
               const typingNames = Object.values(typingUsersByConv[conv.id] ?? {});
 
               return (
                 <button
                   key={conv.id}
                   type="button"
-                  onClick={() => void selectConversation(conv.id, currentUser.id)}
+                  onClick={() => {
+                    onChangeSection('chats');
+                    void selectConversation(conv.id, currentUser.id);
+                  }}
                   className={`fluid-press w-full px-4 py-3.5 flex items-center gap-3 text-left transition-colors ${
                     isSelected ? 'bg-sky-500/15' : 'hover:bg-white/5'
                   }`}
@@ -276,7 +302,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser, onLogout }) => {
         </div>
       )}
 
-      {/* Current User Footer with Profile & QR Modal Trigger */}
+      {/* Current User Footer */}
       <div className="p-3 glass-chrome glass-top-highlight border-t border-white/10 flex items-center justify-between">
         <button
           type="button"
@@ -331,10 +357,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser, onLogout }) => {
         </div>
       </div>
 
-      {/* Profile & Privacy Sheet */}
       <ProfileSheet isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} />
 
-      {/* New 1:1 Chat Fluid Sheet */}
       <FluidSheet
         isOpen={isNewChatOpen}
         onClose={() => setIsNewChatOpen(false)}
@@ -367,7 +391,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser, onLogout }) => {
                   onClick={async () => {
                     await startDirectConversation(u.id, currentUser.id);
                     setIsNewChatOpen(false);
-                    setActiveTab('chats');
+                    onChangeSection('chats');
                   }}
                   className="fluid-press w-full p-3 rounded-2xl bg-slate-900/70 hover:bg-slate-800/90 border border-white/10 flex items-center justify-between text-left"
                 >

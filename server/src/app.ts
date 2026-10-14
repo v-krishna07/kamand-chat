@@ -9,6 +9,7 @@ import { conversationsRouter } from './routes/conversations.js';
 import { contactsRouter } from './routes/contacts.js';
 import { profileRouter } from './routes/profile.js';
 import { statusesRouter } from './routes/statuses.js';
+import { communitiesRouter } from './routes/communities.js';
 import { createRateLimitMiddleware, apiRateLimiter } from './security/rateLimit.js';
 
 export function createApp() {
@@ -58,6 +59,7 @@ export function createApp() {
   app.use('/api/contacts', contactsRouter);
   app.use('/api/statuses', statusesRouter);
   app.use('/api/conversations', conversationsRouter);
+  app.use('/api/communities', communitiesRouter);
 
   app.use((_req, res) => {
     res.status(404).json({ error: 'Endpoint not found' });
