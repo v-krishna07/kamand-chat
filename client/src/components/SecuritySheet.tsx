@@ -9,6 +9,7 @@ import {
   LogOut,
 } from 'lucide-react';
 import { useSecurityStore } from '../store/useSecurityStore.js';
+import { useAuthStore } from '../store/useAuthStore.js';
 import { FluidSheet } from './FluidSheet.js';
 import {
   normalizeEmbedding,
@@ -70,6 +71,8 @@ export const SecuritySheet: React.FC<SecuritySheetProps> = ({ isOpen, onClose })
     }
   }, [isOpen, ensureDeviceIdentityKeys, loadSessions, loadFaceStatus]);
 
+  const { user } = useAuthStore();
+
   const handleBackupPin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (pin.length < 4) return;
@@ -104,8 +107,12 @@ export const SecuritySheet: React.FC<SecuritySheetProps> = ({ isOpen, onClose })
         }),
       });
 
+      if (user?.username) {
+        localStorage.setItem('kamand_face_enrolled_username', user.username);
+      }
+
       await loadFaceStatus();
-      setFaceEnrollStatus('Face template enrolled on-device (zero raw images uploaded).');
+      setFaceEnrollStatus('Face template enrolled on-device (zero raw images uploaded). Ready for Face Login.');
     } catch (err) {
       setFaceEnrollStatus(err instanceof Error ? err.message : 'Face enrollment failed.');
     }
@@ -204,6 +211,7 @@ export const SecuritySheet: React.FC<SecuritySheetProps> = ({ isOpen, onClose })
                 type="button"
                 onClick={async () => {
                   await deleteFaceData();
+                  localStorage.removeItem('kamand_face_enrolled_username');
                   setFaceEnrollStatus('Face template deleted.');
                 }}
                 className="fluid-press px-3 py-1.5 rounded-xl bg-rose-500/15 border border-rose-400/30 text-rose-200 text-xs font-medium flex items-center gap-1"

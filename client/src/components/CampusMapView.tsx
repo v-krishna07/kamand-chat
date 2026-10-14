@@ -111,12 +111,30 @@ export const CampusMapView: React.FC<CampusMapViewProps> = ({
     currentUser.role === 'super_admin' ||
     currentUser.role === 'moderator';
 
+  // Dynamic campus bounding box calculated from real coordinates across North & South campuses
+  const campusBounds = React.useMemo(() => {
+    if (!places || places.length === 0) {
+      return { minLat: 31.7735, maxLat: 31.7850, minLng: 76.9830, maxLng: 76.9950 };
+    }
+    const lats = places.map((p) => p.lat);
+    const lngs = places.map((p) => p.lng);
+    const minLat = Math.min(...lats);
+    const maxLat = Math.max(...lats);
+    const minLng = Math.min(...lngs);
+    const maxLng = Math.max(...lngs);
+    const latSpan = Math.max(0.003, maxLat - minLat);
+    const lngSpan = Math.max(0.003, maxLng - minLng);
+    return {
+      minLat: minLat - latSpan * 0.08,
+      maxLat: maxLat + latSpan * 0.08,
+      minLng: minLng - lngSpan * 0.08,
+      maxLng: maxLng + lngSpan * 0.08,
+    };
+  }, [places]);
+
   // Project WGS84 lat/lng onto our interactive 800x480 campus viewport
   const projectToCanvas = (lat: number, lng: number) => {
-    const minLat = 31.7735;
-    const maxLat = 31.7786;
-    const minLng = 76.9835;
-    const maxLng = 76.9882;
+    const { minLat, maxLat, minLng, maxLng } = campusBounds;
     const x = ((lng - minLng) / (maxLng - minLng)) * 680 + 60;
     const y = (1 - (lat - minLat) / (maxLat - minLat)) * 360 + 60;
     return {
@@ -195,9 +213,8 @@ export const CampusMapView: React.FC<CampusMapViewProps> = ({
 
     const destName =
       places.find((p) => p.id === toPlaceId)?.canonicalName || 'destination';
-    const etaMessage = `📍 Walking to ${destName} (${activeRoute.totalDistanceMeters} m · ETA ~${activeRoute.estimatedWalkMinutes} min walk${
-      stepFreeOnly ? ', step-free route' : ''
-    }).`;
+    const etaMessage = `📍 Walking to ${destName} (${activeRoute.totalDistanceMeters} m · ETA ~${activeRoute.estimatedWalkMinutes} min walk${stepFreeOnly ? ', step-free route' : ''
+      }).`;
 
     await sendMessage(targetConvId, etaMessage, currentUser);
     setEtaSharedNotice(`Shared ${activeRoute.estimatedWalkMinutes} min ETA to chat!`);
@@ -243,11 +260,10 @@ export const CampusMapView: React.FC<CampusMapViewProps> = ({
           <button
             type="button"
             onClick={() => setStepFreeOnly(!stepFreeOnly)}
-            className={`fluid-press px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 ${
-              stepFreeOnly
+            className={`fluid-press px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 ${stepFreeOnly
                 ? 'bg-emerald-500/25 border-emerald-400 text-emerald-200'
                 : 'bg-slate-900 border-white/10 text-slate-300'
-            }`}
+              }`}
             aria-pressed={stepFreeOnly}
           >
             <Accessibility className="w-3.5 h-3.5" />
@@ -481,11 +497,10 @@ export const CampusMapView: React.FC<CampusMapViewProps> = ({
                   key={snap}
                   type="button"
                   onClick={() => setSheetSnap(snap)}
-                  className={`px-2 py-0.5 rounded text-[10px] uppercase font-semibold ${
-                    sheetSnap === snap
+                  className={`px-2 py-0.5 rounded text-[10px] uppercase font-semibold ${sheetSnap === snap
                       ? 'bg-sky-500/25 text-sky-300'
                       : 'bg-white/5 text-slate-400'
-                  }`}
+                    }`}
                 >
                   {snap}
                 </button>
@@ -496,6 +511,44 @@ export const CampusMapView: React.FC<CampusMapViewProps> = ({
 
         {/* Sheet Body */}
         <div className="flex-1 overflow-y-auto px-6 pb-5 space-y-4">
+          {/* Selected Place Details Card with Direct Google Maps Link */}
+          {selectedPlace && (
+            <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-sky-400/30 flex flex-wrap items-center justify-between gap-3">
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded-md bg-sky-500/20 text-sky-300 text-xs font-bold">
+                    {selectedPlace.code}
+                  </span>
+                  <span className="text-sm font-semibold text-white">{selectedPlace.canonicalName}</span>
+                </div>
+                <div className="text-[11px] text-slate-400 flex items-center gap-2">
+                  <span>GPS: {selectedPlace.lat.toFixed(5)}°N, {selectedPlace.lng.toFixed(5)}°E</span>
+                  <span>·</span>
+                  <span className="capitalize">{selectedPlace.category}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <a
+                  href={`https://www.google.com/maps/search/?api=1&query=${selectedPlace.lat},${selectedPlace.lng}`}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="fluid-press px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-white/10 text-xs font-semibold text-slate-200 flex items-center gap-1.5"
+                  title="View precise position on Google Maps"
+                >
+                  <MapPin className="w-3.5 h-3.5 text-rose-400" />
+                  <span>Google Maps</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setRouteEndpoints(fromPlaceId, selectedPlace.id)}
+                  className="fluid-press px-3 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-xs font-semibold text-white cursor-pointer"
+                >
+                  Directions Here
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Manual "From: [place]" & "To: [place]" Route Selector */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 items-center">
             <div>
@@ -720,6 +773,24 @@ export const CampusMapView: React.FC<CampusMapViewProps> = ({
             placeholder="Comma-separated aliases"
             className="w-full rounded-xl bg-slate-900 border border-white/15 px-3 py-2 text-xs text-white"
           />
+          <div className="space-y-1">
+            <label className="block text-[10px] uppercase font-semibold text-sky-400">
+              Quick Paste from Google Maps (e.g. 31.7812, 76.9921 or Maps URL)
+            </label>
+            <input
+              type="text"
+              placeholder="Paste Google Maps coordinates or link to auto-fill Lat/Lng"
+              onChange={(e) => {
+                const val = e.target.value.trim();
+                const match = val.match(/([0-9]{2}\.[0-9]+)[,\s]+([0-9]{2}\.[0-9]+)/);
+                if (match) {
+                  setEditLat(match[1]!);
+                  setEditLng(match[2]!);
+                }
+              }}
+              className="w-full rounded-xl bg-slate-950 border border-sky-400/30 px-3 py-1.5 text-xs text-sky-200 placeholder:text-slate-500"
+            />
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <input
               type="number"

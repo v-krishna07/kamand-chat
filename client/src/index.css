@@ -61,17 +61,16 @@
 
 /* Scroll Edge Fade Mask instead of hard dividers (§12) */
 .scroll-edge-mask {
-  mask-image: linear-gradient(
-    to bottom,
-    transparent 0px,
-    black 18px,
-    black calc(100% - 18px),
-    transparent 100%
-  );
+  mask-image: linear-gradient(to bottom,
+      transparent 0px,
+      black 18px,
+      black calc(100% - 18px),
+      transparent 100%);
 }
 
 /* 14. Accessibility & Reduced Motion / Transparency / High Contrast (§14) */
 @media (prefers-reduced-motion: reduce) {
+
   *,
   *::before,
   *::after {
@@ -80,6 +79,7 @@
     transition-duration: 150ms !important;
     scroll-behavior: auto !important;
   }
+
   .fluid-press:active:not(:disabled) {
     transform: none !important;
   }

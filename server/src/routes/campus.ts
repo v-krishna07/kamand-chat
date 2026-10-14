@@ -333,7 +333,8 @@ campusRouter.get('/today', requireAuth, async (req, res, next) => {
 
     // Also calculate nextClass, nextBus, currentMeal for backwards compatibility
     const nextBus = await busService.getNextUpcomingBus();
-    const currentMeal = await messService.getCurrentMeal('Oak Mess');
+    const requestedMess = typeof req.query.mess === 'string' ? req.query.mess : 'Pine Mess';
+    const currentMeal = await messService.getCurrentMeal(requestedMess);
     const upcomingAssignments = await moodleConnector.getUpcomingAssignments(user.id);
     const quickContacts = await campusDirectoryService.getQuickEmergencyContacts();
 

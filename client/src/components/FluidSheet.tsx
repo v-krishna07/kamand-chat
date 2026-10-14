@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { X } from 'lucide-react';
 import {
   SPRING_SHEET,
   PointerVelocityTracker,
@@ -84,23 +85,30 @@ export const FluidSheet: React.FC<FluidSheetProps> = ({ isOpen, onClose, title, 
             className="relative z-10 w-full max-w-lg rounded-t-3xl sm:rounded-3xl glass-chrome glass-top-highlight border border-white/15 shadow-2xl overflow-hidden"
           >
             {/* Drag Handle Area */}
-            <div
-              onPointerDown={handlePointerDown}
-              onPointerMove={handlePointerMove}
-              onPointerUp={handlePointerUp}
-              onPointerCancel={handlePointerUp}
-              className="pt-3 pb-2 px-6 cursor-grab active:cursor-grabbing select-none touch-none"
-            >
-              <div className="mx-auto h-1.5 w-11 rounded-full bg-slate-400/40 mb-3" />
-              <div className="flex items-center justify-between">
-                <h2 className="text-heading text-lg text-slate-100">{title}</h2>
+            <div className="pt-3 pb-2 px-6 select-none">
+              <div
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerUp}
+                className="w-full py-1 cursor-grab active:cursor-grabbing touch-none flex justify-center"
+                aria-label="Drag to dismiss sheet"
+              >
+                <div className="h-1.5 w-12 rounded-full bg-slate-400/50 hover:bg-slate-300 transition-colors" />
+              </div>
+              <div className="flex items-center justify-between pt-1">
+                <h2 className="text-heading text-lg font-semibold text-slate-100">{title}</h2>
                 <button
                   type="button"
-                  onClick={onClose}
-                  className="fluid-press min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full text-slate-400 hover:text-slate-100 hover:bg-white/10"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onClose();
+                  }}
+                  className="fluid-press min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
                   aria-label="Close modal"
                 >
-                  ✕
+                  <X className="w-5 h-5" />
                 </button>
               </div>
             </div>

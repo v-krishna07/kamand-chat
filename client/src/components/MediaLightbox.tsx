@@ -79,8 +79,12 @@ export const MediaLightbox: React.FC<MediaLightboxProps> = ({
             </button>
             <button
               type="button"
-              onClick={onClose}
-              className="fluid-press p-2.5 rounded-full bg-white/10 text-white"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onClose();
+              }}
+              className="fluid-press p-2.5 rounded-full bg-white/10 hover:bg-white/20 text-white cursor-pointer"
               aria-label="Close image viewer"
             >
               <X className="w-4 h-4" />

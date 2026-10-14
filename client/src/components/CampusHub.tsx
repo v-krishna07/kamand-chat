@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import type { CampusDatumCategory } from '@kamand/shared';
 import { useCampusStore } from '../store/useCampusStore.js';
+import { apiFetch } from '../lib/api.js';
 import { FluidSheet } from './FluidSheet.js';
 
 export const CampusHub: React.FC = () => {
@@ -59,6 +60,56 @@ export const CampusHub: React.FC = () => {
   const [serviceSubtitle, setServiceSubtitle] = useState('');
   const [serviceBody, setServiceBody] = useState('');
   const [serviceLocation, setServiceLocation] = useState('B-19');
+
+  // 6 Campus Mess Halls
+  const MESS_HALLS = [
+    { id: 'Pine Mess', label: 'Pine Mess', campus: 'South Campus', tag: 'Pure Veg & Regional' },
+    { id: 'Oak Mess', label: 'Oak Mess', campus: 'South Campus', tag: 'Veg & Non-Veg' },
+    { id: 'Cedar Mess', label: 'Cedar Mess', campus: 'North Campus', tag: 'North & South Indian' },
+    { id: 'Alder Mess', label: 'Alder Mess', campus: 'North Campus', tag: 'Central Student Mess' },
+    { id: 'Maple Mess', label: 'Maple Mess', campus: 'D1 / D2 Cluster', tag: 'Fresh Bakery & Thali' },
+    { id: 'Peepal Mess', label: 'Peepal Mess', campus: 'North Complex', tag: 'Multicuisine Hub' },
+  ] as const;
+
+  const [selectedMess, setSelectedMess] = useState<string>('Pine Mess');
+  const [currentMeal, setCurrentMeal] = useState<{
+    meal: string;
+    hostel: string;
+    items: string[];
+    timing: string;
+    isVegetarian: boolean;
+  } | null>(null);
+  const [messLoading, setMessLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchMess = async () => {
+      setMessLoading(true);
+      try {
+        const res = await apiFetch<{
+          success: boolean;
+          data: {
+            meal: string;
+            hostel: string;
+            items: string[];
+            timing: string;
+            isVegetarian: boolean;
+          };
+        }>(`/api/campus/mess/current?mess=${encodeURIComponent(selectedMess)}`);
+        if (!cancelled && res.success) {
+          setCurrentMeal(res.data);
+        }
+      } catch {
+        // Fallback gracefully without breaking UI
+      } finally {
+        if (!cancelled) setMessLoading(false);
+      }
+    };
+    void fetchMess();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedMess]);
 
   useEffect(() => {
     void loadCampusDashboard();
@@ -107,11 +158,10 @@ export const CampusHub: React.FC = () => {
               key={tab.id}
               type="button"
               onClick={() => setActiveSubTab(tab.id)}
-              className={`fluid-press px-3 py-1.5 rounded-xl text-xs font-semibold ${
-                activeSubTab === tab.id
+              className={`fluid-press px-3 py-1.5 rounded-xl text-xs font-semibold ${activeSubTab === tab.id
                   ? 'bg-sky-500 text-white'
                   : 'text-slate-400 hover:text-white'
-              }`}
+                }`}
             >
               {tab.label}
             </button>
@@ -152,8 +202,8 @@ export const CampusHub: React.FC = () => {
                   <p className="text-xs text-slate-300 mt-1">
                     {today.moodle.uiVisible
                       ? `Connected · Last synced ${new Date(
-                          today.moodle.lastSyncAt || Date.now()
-                        ).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                        today.moodle.lastSyncAt || Date.now()
+                      ).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
                       : 'Not connected · Your app works 100% without LMS login.'}
                   </p>
                 </div>
@@ -243,20 +293,81 @@ export const CampusHub: React.FC = () => {
               </div>
             )}
 
-            {/* Public Institute Widgets: Pine Mess Menu & Kamand Bus Schedule */}
+            {/* Public Institute Widgets: All 6 Campus Mess Halls & Kamand Bus Schedule */}
             {today.publicData.uiVisible && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div className="p-4 rounded-3xl bg-slate-900/80 border border-white/10 space-y-2.5">
-                  <h2 className="text-heading text-sm text-white flex items-center gap-2">
-                    <Utensils className="w-4 h-4 text-emerald-400" />
-                    <span>Campus Mess Menu (Pine Mess Vegetarian)</span>
-                  </h2>
-                  {today.publicData.messMenu.map((m) => (
-                    <div key={m.id} className="p-3 rounded-2xl bg-slate-950 border border-white/10">
-                      <div className="text-xs font-semibold text-emerald-300">{m.title}</div>
-                      <p className="text-xs text-slate-300 mt-1 leading-relaxed">{m.body}</p>
+                <div className="p-4 rounded-3xl bg-slate-900/80 border border-white/10 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-heading text-sm text-white flex items-center gap-2">
+                      <Utensils className="w-4 h-4 text-emerald-400" />
+                      <span>Campus Mess Halls ({selectedMess})</span>
+                    </h2>
+                    {currentMeal && (
+                      <span className="px-2 py-0.5 rounded-lg bg-emerald-500/15 border border-emerald-400/30 text-emerald-300 text-[11px] font-semibold">
+                        {currentMeal.meal} · {currentMeal.timing}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Mess Hall Selector Pills */}
+                  <div className="flex flex-wrap gap-1.5 p-1 rounded-2xl bg-slate-950/70 border border-white/10">
+                    {MESS_HALLS.map((m) => {
+                      const isSelected = selectedMess === m.id;
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => setSelectedMess(m.id)}
+                          className={`fluid-press px-2.5 py-1 rounded-xl text-[11px] font-medium transition-all ${isSelected
+                              ? 'bg-emerald-500 text-white font-semibold shadow-sm'
+                              : 'text-slate-400 hover:text-white hover:bg-white/5'
+                            }`}
+                        >
+                          {m.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Current Active Meal Card */}
+                  {currentMeal ? (
+                    <div className="p-3.5 rounded-2xl bg-slate-950 border border-white/10 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs font-semibold text-emerald-300">
+                          {currentMeal.meal} Menu — {currentMeal.hostel}
+                        </div>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-850 text-slate-300 border border-white/10">
+                          {MESS_HALLS.find((m) => m.id === selectedMess)?.campus}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 pt-1">
+                        {currentMeal.items.map((item, idx) => (
+                          <span
+                            key={idx}
+                            className="px-2.5 py-1 rounded-lg bg-white/5 border border-white/10 text-slate-200 text-xs font-medium"
+                          >
+                            🍽️ {item}
+                          </span>
+                        ))}
+                      </div>
                     </div>
-                  ))}
+                  ) : messLoading ? (
+                    <div className="p-4 rounded-2xl bg-slate-950 border border-white/10 text-center text-xs text-slate-400">
+                      Loading {selectedMess} menu…
+                    </div>
+                  ) : null}
+
+                  {/* Extra Notices / Fallback notices */}
+                  {today.publicData.messMenu.length > 0 && (
+                    <div className="space-y-1.5 pt-1">
+                      {today.publicData.messMenu.map((m) => (
+                        <div key={m.id} className="p-2.5 rounded-xl bg-slate-950/60 border border-white/5 text-xs">
+                          <span className="font-semibold text-sky-300">{m.title}: </span>
+                          <span className="text-slate-400">{m.body}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div className="p-4 rounded-3xl bg-slate-900/80 border border-white/10 space-y-2.5">
@@ -573,13 +684,12 @@ export const CampusHub: React.FC = () => {
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-semibold text-white">{conn.name}</span>
                     <span
-                      className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${
-                        conn.status === 'connected'
+                      className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${conn.status === 'connected'
                           ? 'bg-emerald-500/15 text-emerald-300'
                           : conn.status === 'degraded_hidden'
                             ? 'bg-amber-500/15 text-amber-300'
                             : 'bg-slate-800 text-slate-400'
-                      }`}
+                        }`}
                     >
                       {conn.status === 'connected'
                         ? 'Connected'
@@ -673,22 +783,20 @@ export const CampusHub: React.FC = () => {
             <button
               type="button"
               onClick={() => setMoodleMode('token')}
-              className={`py-2 rounded-xl border text-xs font-semibold ${
-                moodleMode === 'token'
+              className={`py-2 rounded-xl border text-xs font-semibold ${moodleMode === 'token'
                   ? 'bg-sky-500/20 border-sky-400 text-sky-200'
                   : 'bg-slate-900 border-white/10 text-slate-400'
-              }`}
+                }`}
             >
               Moodle Mobile Token
             </button>
             <button
               type="button"
               onClick={() => setMoodleMode('ics_url')}
-              className={`py-2 rounded-xl border text-xs font-semibold ${
-                moodleMode === 'ics_url'
+              className={`py-2 rounded-xl border text-xs font-semibold ${moodleMode === 'ics_url'
                   ? 'bg-sky-500/20 border-sky-400 text-sky-200'
                   : 'bg-slate-900 border-white/10 text-slate-400'
-              }`}
+                }`}
             >
               Calendar Export ICS URL
             </button>
