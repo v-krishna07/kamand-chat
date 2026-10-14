@@ -3,6 +3,7 @@ import type { ConversationSummary, MessageDTO, UserSummary } from '@kamand/share
 import { apiFetch } from '../lib/api.js';
 import { socketManager } from '../lib/socket.js';
 import { useSocialStore } from './useSocialStore.js';
+import { useCallStore } from './useCallStore.js';
 
 interface PaginationMeta {
   nextCursor: number | null;
@@ -62,7 +63,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   connectionState: 'offline',
   isLoadingConversations: false,
 
-  reset: () =>
+  reset: () => {
+    useCallStore.getState().cleanupAllMediaAndConnections();
     set({
       conversations: [],
       activeConversationId: null,
@@ -72,7 +74,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       replyTargetByConv: {},
       typingUsersByConv: {},
       connectionState: 'offline',
-    }),
+    });
+  },
 
   setDraft: (conversationId, text) =>
     set((s) => ({
@@ -239,6 +242,30 @@ export const useChatStore = create<ChatState>((set, get) => ({
         useSocialStore.getState().handleRealtimeStatusViewed(ev);
       },
 
+      onCallIncoming: (ev) => {
+        useCallStore.getState().handleIncomingCall(ev);
+      },
+
+      onCallParticipantJoined: (ev) => {
+        void useCallStore.getState().handleParticipantJoined(ev);
+      },
+
+      onCallParticipantLeft: (ev) => {
+        useCallStore.getState().handleParticipantLeft(ev);
+      },
+
+      onCallEnded: (ev) => {
+        useCallStore.getState().handleCallEnded(ev);
+      },
+
+      onCallBusy: (ev) => {
+        useCallStore.getState().handleCallBusy(ev);
+      },
+
+      onCallSignal: (ev) => {
+        void useCallStore.getState().handleCallSignal(ev);
+      },
+
       onSyncResume: (missedByConv) => {
         set((prev) => {
           const nextMessagesByConv = { ...prev.messagesByConv };
@@ -265,6 +292,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     return () => {
       unsubState();
+      useCallStore.getState().cleanupAllMediaAndConnections();
       socketManager.disconnect();
     };
   },

@@ -10,7 +10,43 @@ import type {
   ContactDTO,
   StatusDTO,
   StatusViewDTO,
+  WsCallInitiatePayload,
+  WsCallResponsePayload,
+  WsCallSignalPayload,
+  CallStatus,
 } from '@kamand/shared';
+
+export interface IncomingCallEvent {
+  callId: string;
+  conversationId: string;
+  initiatorId: string;
+  initiatorName: string;
+  mediaType: 'audio' | 'video';
+  isGroup: boolean;
+  e2eeKeyMaterial: string;
+  keyGeneration: number;
+}
+
+export interface CallSignalEvent {
+  callId: string;
+  conversationId: string;
+  fromUserId: string;
+  fromDisplayName: string;
+  signalType: 'offer' | 'answer' | 'ice-candidate' | 'media-state' | 'e2ee-key';
+  sdp?: string;
+  candidate?: {
+    candidate: string;
+    sdpMid?: string | null;
+    sdpMLineIndex?: number | null;
+  };
+  mediaState?: {
+    isMuted: boolean;
+    isCameraOff: boolean;
+    isScreenSharing: boolean;
+  };
+  e2eeKeyMaterial?: string;
+  keyGeneration?: number;
+}
 
 class SocketManager {
   private socket: Socket | null = null;
@@ -49,6 +85,30 @@ class SocketManager {
     onContactEvent?: () => void;
     onStatusNew?: (status: StatusDTO) => void;
     onStatusViewed?: (ev: { statusId: string; view: StatusViewDTO }) => void;
+    onCallIncoming?: (ev: IncomingCallEvent) => void;
+    onCallParticipantJoined?: (ev: {
+      callId: string;
+      conversationId: string;
+      userId: string;
+      displayName: string;
+      participants: string[];
+    }) => void;
+    onCallParticipantLeft?: (ev: {
+      callId: string;
+      conversationId: string;
+      leftUserId: string;
+      participants: string[];
+      rotatedKeyGeneration: number;
+      rotatedKeyMaterial: string;
+    }) => void;
+    onCallEnded?: (ev: {
+      callId: string;
+      conversationId: string;
+      reason: string;
+      byUserId: string;
+    }) => void;
+    onCallBusy?: (ev: { callId: string; conversationId: string; busyUserId: string }) => void;
+    onCallSignal?: (ev: CallSignalEvent) => void;
     getCursors: () => Record<string, number>;
     onSyncResume: (missed: Record<string, MessageDTO[]>) => void;
     onFlushPending: () => void;
@@ -128,6 +188,30 @@ class SocketManager {
       handlers.onStatusViewed?.(ev);
     });
 
+    socket.on('call:incoming', (ev: IncomingCallEvent) => {
+      handlers.onCallIncoming?.(ev);
+    });
+
+    socket.on('call:participant-joined', (ev) => {
+      handlers.onCallParticipantJoined?.(ev);
+    });
+
+    socket.on('call:participant-left', (ev) => {
+      handlers.onCallParticipantLeft?.(ev);
+    });
+
+    socket.on('call:ended', (ev) => {
+      handlers.onCallEnded?.(ev);
+    });
+
+    socket.on('call:busy', (ev) => {
+      handlers.onCallBusy?.(ev);
+    });
+
+    socket.on('call:signal', (ev: CallSignalEvent) => {
+      handlers.onCallSignal?.(ev);
+    });
+
     socket.on('disconnect', () => {
       this.setState('offline');
       this.scheduleReconnect();
@@ -190,6 +274,52 @@ class SocketManager {
 
   public emitTyping(conversationId: string, isTyping: boolean): void {
     this.socket?.emit('typing:set', { conversationId, isTyping });
+  }
+
+  public initiateCall(
+    payload: WsCallInitiatePayload
+  ): Promise<{ ok: boolean; status?: CallStatus; error?: string }> {
+    return new Promise((resolve) => {
+      if (!this.socket?.connected) {
+        resolve({ ok: false, error: 'Offline' });
+        return;
+      }
+      this.socket.emit('call:initiate', payload, (res: { ok: boolean; status?: CallStatus; error?: string }) =>
+        resolve(res)
+      );
+    });
+  }
+
+  public acceptCall(
+    payload: WsCallResponsePayload
+  ): Promise<{ ok: boolean; participants?: string[]; error?: string }> {
+    return new Promise((resolve) => {
+      if (!this.socket?.connected) {
+        resolve({ ok: false, error: 'Offline' });
+        return;
+      }
+      this.socket.emit(
+        'call:accept',
+        payload,
+        (res: { ok: boolean; participants?: string[]; error?: string }) => resolve(res)
+      );
+    });
+  }
+
+  public declineCall(payload: WsCallResponsePayload): void {
+    this.socket?.emit('call:decline', payload);
+  }
+
+  public hangupCall(payload: WsCallResponsePayload): void {
+    this.socket?.emit('call:hangup', payload);
+  }
+
+  public timeoutCall(payload: WsCallResponsePayload): void {
+    this.socket?.emit('call:timeout', payload);
+  }
+
+  public sendCallSignal(payload: WsCallSignalPayload): void {
+    this.socket?.emit('call:signal', payload);
   }
 
   public disconnect(): void {

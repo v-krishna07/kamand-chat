@@ -25,4 +25,13 @@ export const config = {
   adminEmail: process.env.ADMIN_EMAIL || 'admin@iitmandi.ac.in',
   adminUsername: process.env.ADMIN_USERNAME || 'admin',
   adminPassword: process.env.ADMIN_PASSWORD || 'Kamand@2026!',
+  stunUrls: (
+    process.env.STUN_URLS || 'stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302'
+  )
+    .split(',')
+    .map((u) => u.trim())
+    .filter(Boolean),
+  turnUrl: process.env.TURN_URL || '',
+  turnUsername: process.env.TURN_USERNAME || '',
+  turnCredential: process.env.TURN_CREDENTIAL || '',
 };

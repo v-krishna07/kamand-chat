@@ -8,10 +8,13 @@ import {
   Ban,
   Lock,
   AlertTriangle,
+  Phone,
+  Video,
 } from 'lucide-react';
 import type { ConversationSummary, UserSummary } from '@kamand/shared';
 import { useChatStore } from '../store/useChatStore.js';
 import { useSecurityStore } from '../store/useSecurityStore.js';
+import { useCallStore } from '../store/useCallStore.js';
 import { MessageBubble } from './MessageBubble.js';
 import { TypingIndicator } from './TypingIndicator.js';
 import { FluidSheet } from './FluidSheet.js';
@@ -48,6 +51,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
     keyChangedWarningsByUser,
     loadPeerDevices,
   } = useSecurityStore();
+
+  const openPreCallCheck = useCallStore((s) => s.openPreCallCheck);
 
   const [isSafetySheetOpen, setIsSafetySheetOpen] = useState(false);
 
@@ -191,7 +196,46 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* E2EE Voice / Video Call Triggers & Safety Number Button */}
+        <div className="flex items-center gap-1.5">
+          {!conversation.isBlocked && (
+            <>
+              <button
+                type="button"
+                onClick={() =>
+                  void openPreCallCheck({
+                    conversationId: conversation.id,
+                    peerTitle: peer.displayName,
+                    mediaType: 'audio',
+                    isGroup: false,
+                  })
+                }
+                className="fluid-press min-h-[38px] min-w-[38px] rounded-xl bg-slate-900 hover:bg-slate-800 border border-white/10 text-slate-200 flex items-center justify-center"
+                aria-label="Start voice call"
+                title="Start E2EE Voice Call"
+              >
+                <Phone className="w-4 h-4 text-sky-400" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  void openPreCallCheck({
+                    conversationId: conversation.id,
+                    peerTitle: peer.displayName,
+                    mediaType: 'video',
+                    isGroup: false,
+                  })
+                }
+                className="fluid-press min-h-[38px] min-w-[38px] rounded-xl bg-slate-900 hover:bg-slate-800 border border-white/10 text-slate-200 flex items-center justify-center"
+                aria-label="Start video call"
+                title="Start E2EE Video Call"
+              >
+                <Video className="w-4 h-4 text-sky-400" />
+              </button>
+            </>
+          )}
+
           <button
             type="button"
             onClick={() => setIsSafetySheetOpen(true)}

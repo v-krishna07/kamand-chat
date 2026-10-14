@@ -45,6 +45,7 @@ model User {
   joinRequests            JoinRequest[]
   senderKeysSent          GroupSenderKey[]   @relation("SenderKeyOwner")
   senderKeysReceived      GroupSenderKey[]   @relation("SenderKeyRecipient")
+  callsInitiated          CallLog[]
   auditLogs               AuditLog[]
 
   @@index([username])
@@ -162,6 +163,7 @@ model Conversation {
   messages            Message[]
   channel             Channel?
   senderKeys          GroupSenderKey[]
+  callLogs            CallLog[]
 
   @@index([updatedAt])
 }
@@ -212,6 +214,25 @@ model Message {
   @@index([conversationId, seq])
   @@index([threadRootId, seq])
   @@index([senderId])
+}
+
+model CallLog {
+  id             String       @id
+  conversationId String
+  initiatorId    String
+  mediaType      String       @default("audio") // audio | video
+  isGroup        Boolean      @default(false)
+  status         String       @default("ringing") // ringing | ongoing | completed | declined | busy | missed
+  durationSec    Int          @default(0)
+  startedAt      DateTime     @default(now())
+  answeredAt     DateTime?
+  endedAt        DateTime?
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  initiator      User         @relation(fields: [initiatorId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, startedAt])
+  @@index([initiatorId])
 }
 
 model ReadReceipt {

@@ -56,6 +56,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   authRateLimiter.reset();
+  await prisma.callLog.deleteMany();
   await prisma.faceChallenge.deleteMany();
   await prisma.faceTemplate.deleteMany();
   await prisma.groupSenderKey.deleteMany();

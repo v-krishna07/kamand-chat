@@ -5,6 +5,7 @@ import { useChatStore } from '../store/useChatStore.js';
 import { Sidebar, type PrimarySection } from '../components/Sidebar.js';
 import { ChatView } from '../components/ChatView.js';
 import { CommunityWorkspace } from '../components/CommunityWorkspace.js';
+import { CallOverlay } from '../components/CallOverlay.js';
 
 interface MessengerPageProps {
   currentUser: UserSummary;
@@ -33,6 +34,9 @@ export const MessengerPage: React.FC<MessengerPageProps> = ({ currentUser, onLog
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-950">
+      {/* Global E2EE Voice/Video Call Overlay & Draggable PiP */}
+      <CallOverlay />
+
       {/* Left Pane: Navigation & Direct Chats / Contacts / Status */}
       <div
         className={`${

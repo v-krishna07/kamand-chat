@@ -544,7 +544,82 @@ export const JoinRequestDTO_Schema = z.object({
 export type JoinRequestDTO = z.infer<typeof JoinRequestDTO_Schema>;
 
 // ============================================================================
-// 7. WebSocket Event Payloads & Acknowledgements
+// 7. Voice & Video Calls Signaling & CallLog Schemas (Phase 5)
+// ============================================================================
+
+export const CallMediaTypeSchema = z.enum(['audio', 'video']);
+export type CallMediaType = z.infer<typeof CallMediaTypeSchema>;
+
+export const CallStatusSchema = z.enum([
+  'ringing',
+  'ongoing',
+  'completed',
+  'declined',
+  'busy',
+  'missed',
+]);
+export type CallStatus = z.infer<typeof CallStatusSchema>;
+
+export const WsCallInitiatePayloadSchema = z.object({
+  callId: z.string().uuid(),
+  conversationId: z.string().uuid(),
+  mediaType: CallMediaTypeSchema,
+  isGroup: z.boolean().default(false),
+  e2eeKeyMaterial: z.string().min(16).max(512), // 256-bit base64 key for Insertable Streams media E2EE
+  keyGeneration: z.number().int().positive().default(1),
+});
+
+export type WsCallInitiatePayload = z.infer<typeof WsCallInitiatePayloadSchema>;
+
+export const WsCallResponsePayloadSchema = z.object({
+  callId: z.string().uuid(),
+  conversationId: z.string().uuid(),
+});
+
+export type WsCallResponsePayload = z.infer<typeof WsCallResponsePayloadSchema>;
+
+export const WsCallSignalPayloadSchema = z.object({
+  callId: z.string().uuid(),
+  conversationId: z.string().uuid(),
+  targetUserId: z.string().uuid(),
+  signalType: z.enum(['offer', 'answer', 'ice-candidate', 'media-state', 'e2ee-key']),
+  sdp: z.string().max(64_000).optional(),
+  candidate: z
+    .object({
+      candidate: z.string(),
+      sdpMid: z.string().nullable().optional(),
+      sdpMLineIndex: z.number().nullable().optional(),
+    })
+    .optional(),
+  mediaState: z
+    .object({
+      isMuted: z.boolean(),
+      isCameraOff: z.boolean(),
+      isScreenSharing: z.boolean(),
+    })
+    .optional(),
+  e2eeKeyMaterial: z.string().max(512).optional(),
+  keyGeneration: z.number().int().positive().optional(),
+});
+
+export type WsCallSignalPayload = z.infer<typeof WsCallSignalPayloadSchema>;
+
+export const CallLogDTO_Schema = z.object({
+  id: z.string().uuid(),
+  conversationId: z.string().uuid(),
+  initiatorId: z.string().uuid(),
+  mediaType: CallMediaTypeSchema,
+  isGroup: z.boolean(),
+  status: CallStatusSchema,
+  durationSec: z.number().int().nonnegative(),
+  startedAt: z.string(),
+  endedAt: z.string().nullable(),
+});
+
+export type CallLogDTO = z.infer<typeof CallLogDTO_Schema>;
+
+// ============================================================================
+// 8. WebSocket Event Payloads & Acknowledgements
 // ============================================================================
 
 export const WsSendMessagePayloadSchema = z

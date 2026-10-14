@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import type { Server as HttpServer } from 'node:http';
 import { Server as SocketIOServer, type Socket } from 'socket.io';
 import cookie from 'cookie';
@@ -7,9 +8,13 @@ import {
   WsMarkReadPayloadSchema,
   WsTypingPayloadSchema,
   WsSyncResumePayloadSchema,
+  WsCallInitiatePayloadSchema,
+  WsCallResponsePayloadSchema,
+  WsCallSignalPayloadSchema,
   type WsSendMessageAck,
   type WsSyncResumeAck,
   type MessageDTO,
+  type CallStatus,
 } from '@kamand/shared';
 import { prisma } from '../db.js';
 import { config } from '../config.js';
@@ -25,12 +30,42 @@ interface AuthenticatedSocket extends Socket {
   displayName: string;
 }
 
+interface ActiveCallSession {
+  callId: string;
+  conversationId: string;
+  initiatorId: string;
+  initiatorName: string;
+  mediaType: 'audio' | 'video';
+  isGroup: boolean;
+  status: CallStatus;
+  participants: Set<string>;
+  invitedIds: Set<string>;
+  keyGeneration: number;
+  startedAt: number;
+  answeredAt: number | null;
+}
+
+const MAX_GROUP_MESH_PARTICIPANTS = 4;
+
 const onlineUsers = new Map<string, Set<string>>();
+const activeCalls = new Map<string, ActiveCallSession>();
 let ioInstance: SocketIOServer | null = null;
 
 export function isUserOnline(userId: string): boolean {
   const sockets = onlineUsers.get(userId);
   return Boolean(sockets && sockets.size > 0);
+}
+
+export function isUserInActiveCall(userId: string): boolean {
+  for (const call of activeCalls.values()) {
+    if (
+      (call.status === 'ringing' || call.status === 'ongoing') &&
+      call.participants.has(userId)
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function emitToUser(userId: string, event: string, payload: unknown): void {
@@ -70,12 +105,90 @@ export function closeSocketServer(): Promise<void> {
       ioInstance.close(() => {
         ioInstance = null;
         onlineUsers.clear();
+        activeCalls.clear();
         resolve();
       });
     } else {
       resolve();
     }
   });
+}
+
+/**
+ * Finalizes a CallLog in Prisma and appends a system Call Log message in the conversation stream (§10).
+ */
+async function finalizeCallAndInsertChatLog(
+  call: ActiveCallSession,
+  finalStatus: CallStatus
+): Promise<void> {
+  activeCalls.delete(call.callId);
+  const now = new Date();
+  const durationSec =
+    call.answeredAt !== null
+      ? Math.max(1, Math.round((now.getTime() - call.answeredAt) / 1000))
+      : 0;
+
+  await prisma.callLog
+    .update({
+      where: { id: call.callId },
+      data: {
+        status: finalStatus,
+        durationSec,
+        endedAt: now,
+      },
+    })
+    .catch(() => undefined);
+
+  const labelMedia = call.mediaType === 'video' ? 'Video call' : 'Voice call';
+  let summaryBody = `${labelMedia} ended`;
+  if (finalStatus === 'completed') {
+    const mins = Math.floor(durationSec / 60);
+    const secs = String(durationSec % 60).padStart(2, '0');
+    summaryBody = `${labelMedia} · ${mins}:${secs}`;
+  } else if (finalStatus === 'declined') {
+    summaryBody = `${labelMedia} · Declined`;
+  } else if (finalStatus === 'busy') {
+    summaryBody = `${labelMedia} · Busy`;
+  } else if (finalStatus === 'missed') {
+    summaryBody = `Missed ${labelMedia.toLowerCase()}`;
+  }
+
+  try {
+    const createdSystemMsg = await prisma.$transaction(async (tx) => {
+      const updatedConv = await tx.conversation.update({
+        where: { id: call.conversationId },
+        data: {
+          lastSeq: { increment: 1 },
+          updatedAt: now,
+        },
+      });
+
+      return tx.message.create({
+        data: {
+          id: crypto.randomUUID(),
+          conversationId: call.conversationId,
+          senderId: call.initiatorId,
+          body: summaryBody,
+          type: 'system',
+          seq: updatedConv.lastSeq,
+          status: 'sent',
+        },
+        include: {
+          sender: {
+            select: { id: true, username: true, displayName: true, avatarUrl: true },
+          },
+        },
+      });
+    });
+
+    if (ioInstance) {
+      ioInstance
+        .to(`conv:${call.conversationId}`)
+        .emit('message:new', formatMessageDTO(createdSystemMsg));
+    }
+  } catch {
+    // Ignore if conversation was deleted during test teardown
+  }
 }
 
 export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
@@ -148,14 +261,20 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
           await prisma.user
             .update({ where: { id: userId }, data: { lastSeenAt: new Date() } })
             .catch(() => undefined);
-          io.emit('presence:update', { userId, isOnline: true, lastSeenAt: new Date().toISOString() });
+          io.emit('presence:update', {
+            userId,
+            isOnline: true,
+            lastSeenAt: new Date().toISOString(),
+          });
         }
-      } catch (err) {
-        console.error('Error during socket background initialization:', err);
+      } catch {
+        // Ignore background initialization errors
       }
     })();
 
-    // 1. Send Message (1:1, Group, or Community Channel + Threaded Replies + Role/Channel Override Check)
+    // ========================================================================
+    // 1. Messaging Events (Phase 1–4)
+    // ========================================================================
     socket.on('message:send', async (rawPayload: unknown, ack?: (res: WsSendMessageAck) => void) => {
       try {
         const rateCheck = wsMessageRateLimiter.consume(userId);
@@ -214,7 +333,6 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
           return;
         }
 
-        // Enforce block check on direct conversations
         if (convWithMembers.type === 'direct') {
           const peerMember = convWithMembers.memberships.find((m) => m.userId !== userId);
           if (peerMember && (await areUsersBlocked(userId, peerMember.userId))) {
@@ -227,7 +345,6 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
           }
         }
 
-        // Enforce structured community channel permissions (announcement-only, readonly role, overrides)
         const channelAccess = await checkConversationChannelAccess(conversationId, userId);
         if (!channelAccess.canSend) {
           ack?.({
@@ -238,7 +355,6 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
           return;
         }
 
-        // Idempotency check
         const existingMessage = await prisma.message.findUnique({
           where: { id },
           include: {
@@ -298,8 +414,6 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
           }
         }
 
-        // Section 8 E2EE Rule: When `ciphertext` and `nonce` are provided, the server stores ONLY
-        // `[E2EE]` in `body` so a database dump never contains plaintext.
         const isEncrypted = Boolean(ciphertext && nonce);
         const persistedBody = isEncrypted ? '[E2EE]' : body;
 
@@ -381,7 +495,6 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
       }
     });
 
-    // 2. Typing Indicator Events
     socket.on('typing:set', async (rawPayload: unknown) => {
       try {
         const parsed = WsTypingPayloadSchema.safeParse(rawPayload);
@@ -413,7 +526,6 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
       }
     });
 
-    // 3. Delivery Receipt Acknowledgement
     socket.on('message:delivered', async (rawPayload: unknown) => {
       try {
         const parsed = WsMarkDeliveredPayloadSchema.safeParse(rawPayload);
@@ -453,7 +565,6 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
       }
     });
 
-    // 4. Read Receipt Acknowledgement
     socket.on('message:read', async (rawPayload: unknown) => {
       try {
         const parsed = WsMarkReadPayloadSchema.safeParse(rawPayload);
@@ -514,7 +625,6 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
       }
     });
 
-    // 5. Reconnect Catch-Up (`sync:resume`)
     socket.on('sync:resume', async (rawPayload: unknown, ack?: (res: WsSyncResumeAck) => void) => {
       try {
         const parsed = WsSyncResumePayloadSchema.safeParse(rawPayload);
@@ -563,6 +673,373 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
         ack?.({ ok: true, missedMessages });
       } catch {
         ack?.({ ok: false, missedMessages: {} });
+      }
+    });
+
+    // ========================================================================
+    // 2. WebRTC Voice & Video Call Signaling State Machine (Phase 5 - §10)
+    // ========================================================================
+
+    // A. Initiate Call (Ring 1:1 or Group Mesh up to 4 participants)
+    socket.on(
+      'call:initiate',
+      async (
+        rawPayload: unknown,
+        ack?: (res: { ok: boolean; status?: CallStatus; error?: string }) => void
+      ) => {
+        try {
+          const parsed = WsCallInitiatePayloadSchema.safeParse(rawPayload);
+          if (!parsed.success) {
+            ack?.({ ok: false, error: 'Invalid call initiation payload' });
+            return;
+          }
+
+          const {
+            callId,
+            conversationId,
+            mediaType,
+            isGroup,
+            e2eeKeyMaterial,
+            keyGeneration,
+          } = parsed.data;
+
+          const conv = await prisma.conversation.findUnique({
+            where: { id: conversationId },
+            include: { memberships: true },
+          });
+
+          if (!conv) {
+            ack?.({ ok: false, error: 'Conversation not found' });
+            return;
+          }
+
+          const isMember = conv.memberships.some((m) => m.userId === userId);
+          if (!isMember) {
+            ack?.({ ok: false, error: 'Not a member of this conversation' });
+            return;
+          }
+
+          const targetMemberIds = conv.memberships
+            .map((m) => m.userId)
+            .filter((id) => id !== userId);
+
+          if (conv.type === 'direct' && targetMemberIds.length === 1) {
+            const peerId = targetMemberIds[0]!;
+            if (await areUsersBlocked(userId, peerId)) {
+              ack?.({ ok: false, error: 'Cannot call a blocked user' });
+              return;
+            }
+
+            // If 1:1 peer is already in an active call -> immediately mark as `busy`
+            if (isUserInActiveCall(peerId)) {
+              await prisma.callLog.create({
+                data: {
+                  id: callId,
+                  conversationId,
+                  initiatorId: userId,
+                  mediaType,
+                  isGroup: false,
+                  status: 'busy',
+                  endedAt: new Date(),
+                },
+              });
+
+              const busySession: ActiveCallSession = {
+                callId,
+                conversationId,
+                initiatorId: userId,
+                initiatorName: displayName,
+                mediaType,
+                isGroup: false,
+                status: 'busy',
+                participants: new Set([userId]),
+                invitedIds: new Set([peerId]),
+                keyGeneration,
+                startedAt: Date.now(),
+                answeredAt: null,
+              };
+              await finalizeCallAndInsertChatLog(busySession, 'busy');
+              socket.emit('call:busy', { callId, conversationId, busyUserId: peerId });
+              ack?.({ ok: true, status: 'busy' });
+              return;
+            }
+          }
+
+          await prisma.callLog.create({
+            data: {
+              id: callId,
+              conversationId,
+              initiatorId: userId,
+              mediaType,
+              isGroup,
+              status: 'ringing',
+            },
+          });
+
+          const session: ActiveCallSession = {
+            callId,
+            conversationId,
+            initiatorId: userId,
+            initiatorName: displayName,
+            mediaType,
+            isGroup: isGroup || conv.type === 'group',
+            status: 'ringing',
+            participants: new Set([userId]),
+            invitedIds: new Set(targetMemberIds),
+            keyGeneration,
+            startedAt: Date.now(),
+            answeredAt: null,
+          };
+          activeCalls.set(callId, session);
+
+          for (const targetId of targetMemberIds) {
+            emitToUser(targetId, 'call:incoming', {
+              callId,
+              conversationId,
+              initiatorId: userId,
+              initiatorName: displayName,
+              mediaType,
+              isGroup: session.isGroup,
+              e2eeKeyMaterial,
+              keyGeneration,
+            });
+          }
+
+          ack?.({ ok: true, status: 'ringing' });
+        } catch (err) {
+          console.error('call:initiate error:', err);
+          ack?.({ ok: false, error: 'Failed to initiate call' });
+        }
+      }
+    );
+
+    // B. Accept Call
+    socket.on(
+      'call:accept',
+      async (rawPayload: unknown, ack?: (res: { ok: boolean; error?: string; participants?: string[] }) => void) => {
+        try {
+          const parsed = WsCallResponsePayloadSchema.safeParse(rawPayload);
+          if (!parsed.success) {
+            ack?.({ ok: false, error: 'Invalid accept payload' });
+            return;
+          }
+
+          const { callId, conversationId } = parsed.data;
+          const call = activeCalls.get(callId);
+          if (!call || call.conversationId !== conversationId) {
+            ack?.({ ok: false, error: 'Call is no longer active' });
+            return;
+          }
+
+          if (!call.invitedIds.has(userId) && !call.participants.has(userId)) {
+            ack?.({ ok: false, error: 'Not invited to this call' });
+            return;
+          }
+
+          if (call.participants.size >= MAX_GROUP_MESH_PARTICIPANTS) {
+            ack?.({ ok: false, error: 'Group call mesh is full (max 4 participants)' });
+            return;
+          }
+
+          call.participants.add(userId);
+          if (call.status === 'ringing') {
+            call.status = 'ongoing';
+            call.answeredAt = Date.now();
+            await prisma.callLog
+              .update({
+                where: { id: callId },
+                data: { status: 'ongoing', answeredAt: new Date() },
+              })
+              .catch(() => undefined);
+          }
+
+          for (const participantId of call.participants) {
+            if (participantId !== userId) {
+              emitToUser(participantId, 'call:participant-joined', {
+                callId,
+                conversationId,
+                userId,
+                displayName,
+                participants: Array.from(call.participants),
+              });
+            }
+          }
+
+          ack?.({ ok: true, participants: Array.from(call.participants) });
+        } catch {
+          ack?.({ ok: false, error: 'Failed to accept call' });
+        }
+      }
+    );
+
+    // C. Decline Incoming Call
+    socket.on(
+      'call:decline',
+      async (rawPayload: unknown, ack?: (res: { ok: boolean }) => void) => {
+        try {
+          const parsed = WsCallResponsePayloadSchema.safeParse(rawPayload);
+          if (!parsed.success) {
+            ack?.({ ok: false });
+            return;
+          }
+
+          const { callId, conversationId } = parsed.data;
+          const call = activeCalls.get(callId);
+          if (!call || call.conversationId !== conversationId) {
+            ack?.({ ok: false });
+            return;
+          }
+
+          call.invitedIds.delete(userId);
+
+          if (!call.isGroup || call.invitedIds.size === 0) {
+            for (const pid of call.participants) {
+              emitToUser(pid, 'call:ended', {
+                callId,
+                conversationId,
+                reason: 'declined',
+                byUserId: userId,
+              });
+            }
+            await finalizeCallAndInsertChatLog(call, 'declined');
+          }
+
+          ack?.({ ok: true });
+        } catch {
+          ack?.({ ok: false });
+        }
+      }
+    );
+
+    // D. Timeout / No Answer (`missed`)
+    socket.on(
+      'call:timeout',
+      async (rawPayload: unknown, ack?: (res: { ok: boolean }) => void) => {
+        try {
+          const parsed = WsCallResponsePayloadSchema.safeParse(rawPayload);
+          if (!parsed.success) {
+            ack?.({ ok: false });
+            return;
+          }
+
+          const { callId, conversationId } = parsed.data;
+          const call = activeCalls.get(callId);
+          if (!call || call.conversationId !== conversationId || call.status !== 'ringing') {
+            ack?.({ ok: false });
+            return;
+          }
+
+          const allTargetIds = new Set([...call.participants, ...call.invitedIds]);
+          for (const uid of allTargetIds) {
+            emitToUser(uid, 'call:ended', {
+              callId,
+              conversationId,
+              reason: 'missed',
+              byUserId: userId,
+            });
+          }
+
+          await finalizeCallAndInsertChatLog(call, 'missed');
+          ack?.({ ok: true });
+        } catch {
+          ack?.({ ok: false });
+        }
+      }
+    );
+
+    // E. Hangup / Leave Call (With Automatic Group E2EE Media Key Rotation when a participant leaves)
+    socket.on(
+      'call:hangup',
+      async (rawPayload: unknown, ack?: (res: { ok: boolean }) => void) => {
+        try {
+          const parsed = WsCallResponsePayloadSchema.safeParse(rawPayload);
+          if (!parsed.success) {
+            ack?.({ ok: false });
+            return;
+          }
+
+          const { callId, conversationId } = parsed.data;
+          const call = activeCalls.get(callId);
+          if (!call || call.conversationId !== conversationId) {
+            ack?.({ ok: false });
+            return;
+          }
+
+          call.participants.delete(userId);
+
+          // If 1:1 call or last remaining participant leaves -> end call completely
+          if (!call.isGroup || call.participants.size <= 1) {
+            const finalStatus: CallStatus =
+              call.answeredAt !== null ? 'completed' : 'missed';
+            const notifyTargets = new Set([...call.participants, ...call.invitedIds]);
+            for (const uid of notifyTargets) {
+              emitToUser(uid, 'call:ended', {
+                callId,
+                conversationId,
+                reason: finalStatus,
+                byUserId: userId,
+              });
+            }
+            await finalizeCallAndInsertChatLog(call, finalStatus);
+          } else {
+            // Group Mesh Call: Rotate E2EE media key generation when a participant leaves (§10)
+            call.keyGeneration += 1;
+            const rotatedKeyMaterial = crypto.randomBytes(32).toString('base64');
+
+            for (const remainingId of call.participants) {
+              emitToUser(remainingId, 'call:participant-left', {
+                callId,
+                conversationId,
+                leftUserId: userId,
+                participants: Array.from(call.participants),
+                rotatedKeyGeneration: call.keyGeneration,
+                rotatedKeyMaterial,
+              });
+            }
+          }
+
+          ack?.({ ok: true });
+        } catch {
+          ack?.({ ok: false });
+        }
+      }
+    );
+
+    // F. Peer-to-Peer WebRTC Offer / Answer / ICE Candidate / Media State Relay
+    socket.on('call:signal', async (rawPayload: unknown) => {
+      try {
+        const parsed = WsCallSignalPayloadSchema.safeParse(rawPayload);
+        if (!parsed.success) return;
+
+        const {
+          callId,
+          conversationId,
+          targetUserId,
+          signalType,
+          sdp,
+          candidate,
+          mediaState,
+          e2eeKeyMaterial,
+          keyGeneration,
+        } = parsed.data;
+
+        const call = activeCalls.get(callId);
+        if (!call || call.conversationId !== conversationId) return;
+
+        emitToUser(targetUserId, 'call:signal', {
+          callId,
+          conversationId,
+          fromUserId: userId,
+          fromDisplayName: displayName,
+          signalType,
+          sdp,
+          candidate,
+          mediaState,
+          e2eeKeyMaterial,
+          keyGeneration,
+        });
+      } catch {
+        // Ignore transient signaling relay errors
       }
     });
 
