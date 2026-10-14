@@ -14,6 +14,7 @@ import { keysRouter } from './routes/keys.js';
 import { faceRouter } from './routes/face.js';
 import { callsRouter } from './routes/calls.js';
 import { aiRouter } from './routes/ai.js';
+import { campusRouter } from './routes/campus.js';
 import { createRateLimitMiddleware, apiRateLimiter } from './security/rateLimit.js';
 
 export function createApp() {
@@ -63,6 +64,7 @@ export function createApp() {
   app.use('/api/face', faceRouter);
   app.use('/api/calls', callsRouter);
   app.use('/api/ai', aiRouter);
+  app.use('/api/campus', campusRouter);
   app.use('/api/users', usersRouter);
   app.use('/api/profile', profileRouter);
   app.use('/api/contacts', contactsRouter);

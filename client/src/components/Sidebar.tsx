@@ -11,6 +11,7 @@ import {
   Layers,
   ShieldCheck,
   Sparkles,
+  GraduationCap,
 } from 'lucide-react';
 import type { UserSummary } from '@kamand/shared';
 import { useChatStore } from '../store/useChatStore.js';
@@ -24,7 +25,8 @@ import { ProfileSheet } from './ProfileSheet.js';
 import { SecuritySheet } from './SecuritySheet.js';
 import { AskAiPanel } from './AskAiPanel.js';
 
-export type PrimarySection = 'chats' | 'communities' | 'contacts' | 'status' | 'ai';
+export type PrimarySection = 'chats' | 'communities' | 'campus' | 'contacts' | 'status' | 'ai';
+
 
 interface SidebarProps {
   currentUser: UserSummary;
@@ -126,9 +128,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
 
-        {/* Specific Navigation Bar: Chats | Groups | Contacts | Status | Ask AI */}
+        {/* Specific Navigation Bar: Chats | Groups | Campus | Contacts | Status | Ask AI */}
         <div
-          className="grid grid-cols-5 gap-1 p-1 rounded-2xl bg-slate-900/90 border border-white/10"
+          className="grid grid-cols-6 gap-1 p-1 rounded-2xl bg-slate-900/90 border border-white/10"
           role="tablist"
           aria-label="Primary sections"
         >
@@ -137,7 +139,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             role="tab"
             aria-selected={activeSection === 'chats'}
             onClick={() => onChangeSection('chats')}
-            className={`fluid-press py-1.5 rounded-xl text-[11px] font-semibold flex items-center justify-center gap-1 ${
+            className={`fluid-press py-1.5 rounded-xl text-[10px] font-semibold flex flex-col items-center justify-center gap-0.5 ${
               activeSection === 'chats'
                 ? 'bg-sky-500 text-white shadow-xs'
                 : 'text-slate-400 hover:text-white'
@@ -152,7 +154,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             role="tab"
             aria-selected={activeSection === 'communities'}
             onClick={() => onChangeSection('communities')}
-            className={`fluid-press py-1.5 rounded-xl text-[11px] font-semibold flex items-center justify-center gap-1 ${
+            className={`fluid-press py-1.5 rounded-xl text-[10px] font-semibold flex flex-col items-center justify-center gap-0.5 ${
               activeSection === 'communities'
                 ? 'bg-sky-500 text-white shadow-xs'
                 : 'text-slate-400 hover:text-white'
@@ -165,21 +167,38 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             type="button"
             role="tab"
+            aria-selected={activeSection === 'campus'}
+            onClick={() => onChangeSection('campus')}
+            className={`fluid-press py-1.5 rounded-xl text-[10px] font-semibold flex flex-col items-center justify-center gap-0.5 ${
+              activeSection === 'campus'
+                ? 'bg-sky-500 text-white shadow-xs'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <GraduationCap className="w-3 h-3" />
+            <span>Campus</span>
+          </button>
+
+          <button
+            type="button"
+            role="tab"
             aria-selected={activeSection === 'contacts'}
             onClick={() => onChangeSection('contacts')}
-            className={`fluid-press py-1.5 rounded-xl text-[11px] font-semibold flex items-center justify-center gap-1 ${
+            className={`fluid-press py-1.5 rounded-xl text-[10px] font-semibold flex flex-col items-center justify-center gap-0.5 ${
               activeSection === 'contacts'
                 ? 'bg-sky-500 text-white shadow-xs'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            <Users className="w-3 h-3" />
+            <div className="relative flex items-center justify-center">
+              <Users className="w-3 h-3" />
+              {incomingRequestCount > 0 && (
+                <span className="absolute -top-1 -right-2 px-1 py-0.2 rounded-full bg-rose-500 text-white text-[8px]">
+                  {incomingRequestCount}
+                </span>
+              )}
+            </div>
             <span>Contacts</span>
-            {incomingRequestCount > 0 && (
-              <span className="px-1 py-0.2 rounded-full bg-rose-500 text-white text-[9px]">
-                {incomingRequestCount}
-              </span>
-            )}
           </button>
 
           <button
@@ -187,15 +206,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
             role="tab"
             aria-selected={activeSection === 'status'}
             onClick={() => onChangeSection('status')}
-            className={`fluid-press py-1.5 rounded-xl text-[11px] font-semibold flex items-center justify-center gap-1 ${
+            className={`fluid-press py-1.5 rounded-xl text-[10px] font-semibold flex flex-col items-center justify-center gap-0.5 ${
               activeSection === 'status'
                 ? 'bg-sky-500 text-white shadow-xs'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            <CircleDot className="w-3 h-3" />
+            <div className="relative flex items-center justify-center">
+              <CircleDot className="w-3 h-3" />
+              {unviewedStatusCount > 0 && (
+                <span className="absolute -top-0.5 -right-1 w-1.5 h-1.5 rounded-full bg-sky-300" />
+              )}
+            </div>
             <span>Status</span>
-            {unviewedStatusCount > 0 && <span className="w-1.5 h-1.5 rounded-full bg-sky-300" />}
           </button>
 
           <button
@@ -203,7 +226,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             role="tab"
             aria-selected={activeSection === 'ai'}
             onClick={() => onChangeSection('ai')}
-            className={`fluid-press py-1.5 rounded-xl text-[11px] font-semibold flex items-center justify-center gap-1 ${
+            className={`fluid-press py-1.5 rounded-xl text-[10px] font-semibold flex flex-col items-center justify-center gap-0.5 ${
               activeSection === 'ai'
                 ? 'bg-sky-500 text-white shadow-xs'
                 : 'text-slate-400 hover:text-white'
@@ -213,6 +236,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <span>Ask AI</span>
           </button>
         </div>
+
 
         {activeSection === 'chats' && (
           <div className="relative">

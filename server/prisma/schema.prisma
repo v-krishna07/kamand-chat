@@ -47,6 +47,8 @@ model User {
   senderKeysReceived      GroupSenderKey[]   @relation("SenderKeyRecipient")
   callsInitiated          CallLog[]
   auditLogs               AuditLog[]
+  courseEnrollments       CourseEnrollment[]
+  timetableSlots          TimetableSlot[]
 
   @@index([username])
   @@index([email])
@@ -411,4 +413,122 @@ model AuditLog {
 
   @@index([actorId])
   @@index([createdAt])
+}
+
+// ============================================================================
+// Phase 7: IIT Mandi Campus Layer Models
+// ============================================================================
+
+model Course {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  title       String
+  instructor  String
+  credits     Int      @default(3)
+  slot        String
+  room        String   @default("A1-NKN")
+  description String   @default("")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  enrollments CourseEnrollment[]
+  assignments Assignment[]
+  timetable   TimetableSlot[]
+
+  @@index([code])
+}
+
+model CourseEnrollment {
+  id         String   @id @default(uuid())
+  userId     String
+  courseId   String
+  enrolledAt DateTime @default(now())
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course     Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId])
+  @@index([userId])
+  @@index([courseId])
+}
+
+model Assignment {
+  id             String   @id @default(uuid())
+  courseId       String
+  moodleAssignId Int?
+  title          String
+  description    String   @default("")
+  dueDate        DateTime
+  maxPoints      Int      @default(100)
+  submissionUrl  String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  course         Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@index([courseId])
+  @@index([dueDate])
+}
+
+model TimetableSlot {
+  id        String   @id @default(uuid())
+  courseId  String?
+  userId    String?
+  dayOfWeek String
+  startTime String
+  endTime   String
+  location  String
+  title     String
+  slotCode  String?
+  createdAt DateTime @default(now())
+
+  course    Course?  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([dayOfWeek, startTime])
+  @@index([userId])
+  @@index([courseId])
+}
+
+model BusTrip {
+  id            String   @id @default(uuid())
+  routeName     String
+  fromLocation  String
+  toLocation    String
+  departureTime String
+  daysOfWeek    String   @default("Mon,Tue,Wed,Thu,Fri,Sat,Sun")
+  busType       String   @default("Electric Bus")
+  isWeekendOnly Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  @@index([fromLocation, departureTime])
+}
+
+model MessMenu {
+  id          String   @id @default(uuid())
+  hostelName  String
+  dayOfWeek   String
+  mealType    String
+  items       String
+  dietaryNote String?
+  updatedAt   DateTime @updatedAt
+
+  @@unique([hostelName, dayOfWeek, mealType])
+  @@index([hostelName, dayOfWeek])
+}
+
+model CampusService {
+  id             String   @id @default(uuid())
+  title          String
+  category       String
+  phone          String
+  alternatePhone String?
+  email          String?
+  location       String
+  operatingHours String   @default("24x7")
+  description    String   @default("")
+  priorityOrder  Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  @@index([category])
 }

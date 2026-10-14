@@ -774,3 +774,212 @@ export const WsSyncResumeAckSchema = z.object({
 });
 
 export type WsSyncResumeAck = z.infer<typeof WsSyncResumeAckSchema>;
+
+// ============================================================================
+// 10. IIT Mandi Campus Layer Schemas (Phase 7 - Section 13)
+// ============================================================================
+
+export const CampusConnectorHealthSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  isHealthy: z.boolean(),
+  latencyMs: z.number().int().nonnegative(),
+  lastChecked: z.string(),
+  fallbackActive: z.boolean(),
+  message: z.string(),
+});
+export type CampusConnectorHealth = z.infer<typeof CampusConnectorHealthSchema>;
+
+export const CampusHealthSummarySchema = z.object({
+  overallStatus: z.enum(['healthy', 'degraded', 'offline']),
+  connectors: z.array(CampusConnectorHealthSchema),
+  timestamp: z.string(),
+});
+export type CampusHealthSummary = z.infer<typeof CampusHealthSummarySchema>;
+
+export const CourseDTO_Schema = z.object({
+  id: z.string().uuid(),
+  code: z.string(),
+  title: z.string(),
+  instructor: z.string(),
+  credits: z.number().int().positive(),
+  slot: z.string(),
+  room: z.string(),
+  description: z.string(),
+  isEnrolled: z.boolean().optional(),
+});
+export type CourseDTO = z.infer<typeof CourseDTO_Schema>;
+
+export const CreateCourseInputSchema = z.object({
+  code: z.string().trim().min(2).max(15).transform((v) => v.toUpperCase()),
+  title: z.string().trim().min(2).max(100),
+  instructor: z.string().trim().min(2).max(80),
+  credits: z.number().int().min(1).max(10).default(3),
+  slot: z.string().trim().min(1).max(10).transform((v) => v.toUpperCase()),
+  room: z.string().trim().min(1).max(40).default('A1-NKN'),
+  description: z.string().trim().max(500).optional().default(''),
+});
+export type CreateCourseInput = z.infer<typeof CreateCourseInputSchema>;
+
+export const AssignmentDTO_Schema = z.object({
+  id: z.string().uuid(),
+  courseId: z.string().uuid(),
+  courseCode: z.string(),
+  courseTitle: z.string(),
+  moodleAssignId: z.number().int().nullable().optional(),
+  title: z.string(),
+  description: z.string(),
+  dueDate: z.string(),
+  maxPoints: z.number().int().nonnegative(),
+  submissionUrl: z.string().nullable().optional(),
+  isOverdue: z.boolean(),
+  daysRemaining: z.number(),
+});
+export type AssignmentDTO = z.infer<typeof AssignmentDTO_Schema>;
+
+export const MoodleSyncResponseSchema = z.object({
+  syncedCourses: z.number().int().nonnegative(),
+  syncedAssignments: z.number().int().nonnegative(),
+  source: z.enum(['moodle_api', 'ics_feed', 'local_cache']),
+  fallbackActive: z.boolean(),
+  syncedAt: z.string(),
+});
+export type MoodleSyncResponse = z.infer<typeof MoodleSyncResponseSchema>;
+
+export const TimetableSlotDTO_Schema = z.object({
+  id: z.string().uuid(),
+  courseId: z.string().uuid().nullable().optional(),
+  dayOfWeek: z.enum(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']),
+  startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'HH:mm format required'),
+  endTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'HH:mm format required'),
+  location: z.string(),
+  title: z.string(),
+  slotCode: z.string().nullable().optional(),
+});
+export type TimetableSlotDTO = z.infer<typeof TimetableSlotDTO_Schema>;
+
+export const FreeSlotQuerySchema = z.object({
+  userIds: z.array(z.string().uuid()).min(1).max(20),
+  dayOfWeek: z.enum(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']),
+  windowStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default('08:00'),
+  windowEnd: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default('18:00'),
+  minDurationMins: z.number().int().min(15).max(480).default(30),
+});
+export type FreeSlotQuery = z.infer<typeof FreeSlotQuerySchema>;
+
+export const FreeSlotDTO_Schema = z.object({
+  dayOfWeek: z.string(),
+  startTime: z.string(),
+  endTime: z.string(),
+  durationMins: z.number().int().positive(),
+  participantsCount: z.number().int().positive(),
+});
+export type FreeSlotDTO = z.infer<typeof FreeSlotDTO_Schema>;
+
+export const BusTripDTO_Schema = z.object({
+  id: z.string().uuid(),
+  routeName: z.string(),
+  fromLocation: z.string(),
+  toLocation: z.string(),
+  departureTime: z.string(),
+  daysOfWeek: z.string(),
+  busType: z.string(),
+  isWeekendOnly: z.boolean(),
+  minutesUntilDeparture: z.number().int().optional(),
+  isNext: z.boolean().optional(),
+});
+export type BusTripDTO = z.infer<typeof BusTripDTO_Schema>;
+
+export const CreateBusTripInputSchema = z.object({
+  routeName: z.string().trim().min(2).max(100),
+  fromLocation: z.string().trim().min(2).max(80),
+  toLocation: z.string().trim().min(2).max(80),
+  departureTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'HH:mm format required'),
+  daysOfWeek: z.string().trim().max(100).default('Mon,Tue,Wed,Thu,Fri,Sat,Sun'),
+  busType: z.string().trim().max(50).default('Electric Bus'),
+  isWeekendOnly: z.boolean().optional().default(false),
+});
+export type CreateBusTripInput = z.infer<typeof CreateBusTripInputSchema>;
+
+export const MealTypeSchema = z.enum(['breakfast', 'lunch', 'snacks', 'dinner']);
+export type MealType = z.infer<typeof MealTypeSchema>;
+
+export const MessMealDTO_Schema = z.object({
+  id: z.string().uuid(),
+  hostelName: z.string(),
+  dayOfWeek: z.string(),
+  mealType: MealTypeSchema,
+  items: z.array(z.string()),
+  dietaryNote: z.string().nullable().optional(),
+  isCurrentMeal: z.boolean().optional(),
+});
+export type MessMealDTO = z.infer<typeof MessMealDTO_Schema>;
+
+export const UpdateMessMealInputSchema = z.object({
+  hostelName: z.string().trim().min(2).max(50),
+  dayOfWeek: z.enum(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']),
+  mealType: MealTypeSchema,
+  items: z.array(z.string().trim().min(1)).min(1).max(20),
+  dietaryNote: z.string().trim().max(100).optional(),
+});
+export type UpdateMessMealInput = z.infer<typeof UpdateMessMealInputSchema>;
+
+export const CampusServiceDTO_Schema = z.object({
+  id: z.string().uuid(),
+  title: z.string(),
+  category: z.enum(['emergency', 'medical', 'transport', 'admin', 'it']),
+  phone: z.string(),
+  alternatePhone: z.string().nullable().optional(),
+  email: z.string().nullable().optional(),
+  location: z.string(),
+  operatingHours: z.string(),
+  description: z.string(),
+});
+export type CampusServiceDTO = z.infer<typeof CampusServiceDTO_Schema>;
+
+export const CreateCampusServiceInputSchema = z.object({
+  title: z.string().trim().min(2).max(100),
+  category: z.enum(['emergency', 'medical', 'transport', 'admin', 'it']),
+  phone: z.string().trim().min(3).max(30),
+  alternatePhone: z.string().trim().max(30).optional(),
+  email: z.string().trim().email().optional(),
+  location: z.string().trim().min(2).max(80),
+  operatingHours: z.string().trim().min(2).max(50).default('24x7'),
+  description: z.string().trim().max(300).optional().default(''),
+});
+export type CreateCampusServiceInput = z.infer<typeof CreateCampusServiceInputSchema>;
+
+export const CitationSchema = z.object({
+  title: z.string(),
+  sourceType: z.enum(['academic_calendar', 'bus_schedule', 'mess_menu', 'campus_handbook', 'course_catalog']),
+  reference: z.string(),
+  snippet: z.string(),
+});
+export type Citation = z.infer<typeof CitationSchema>;
+
+export const GroundedCampusQARequestSchema = z.object({
+  query: z.string().trim().min(2).max(1000),
+});
+export type GroundedCampusQARequest = z.infer<typeof GroundedCampusQARequestSchema>;
+
+export const GroundedCampusQAResponseSchema = z.object({
+  query: z.string(),
+  answer: z.string(),
+  citations: z.array(CitationSchema),
+  confidence: z.enum(['high', 'medium', 'low']),
+  timestamp: z.string(),
+});
+export type GroundedCampusQAResponse = z.infer<typeof GroundedCampusQAResponseSchema>;
+
+export const CampusTodaySummaryDTO_Schema = z.object({
+  dateStr: z.string(),
+  dayOfWeek: z.string(),
+  nextClass: TimetableSlotDTO_Schema.nullable().optional(),
+  nextBus: BusTripDTO_Schema.nullable().optional(),
+  currentMeal: MessMealDTO_Schema.nullable().optional(),
+  upcomingAssignments: z.array(AssignmentDTO_Schema),
+  quickContacts: z.array(CampusServiceDTO_Schema),
+  connectorsStatus: z.enum(['healthy', 'degraded', 'offline']),
+});
+export type CampusTodaySummaryDTO = z.infer<typeof CampusTodaySummaryDTO_Schema>;
+

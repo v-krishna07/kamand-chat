@@ -307,7 +307,256 @@ async function main() {
     });
   }
 
+  // Phase 7: Seed Campus Layer Data
+  console.log('Seeding Phase 7 Campus Layer data (Courses, Timetable, Bus, Mess, Services)...');
+
+  const cs302 = await prisma.course.upsert({
+    where: { code: 'CS302' },
+    update: {},
+    create: {
+      code: 'CS302',
+      title: 'Data Structures and Algorithms',
+      instructor: 'Dr. Varun Dutt',
+      credits: 4,
+      slot: 'A',
+      room: 'A1-NKN',
+      description: 'Advanced data structures, balanced trees, graph algorithms, and algorithmic complexity.',
+    },
+  });
+
+  const cs307 = await prisma.course.upsert({
+    where: { code: 'CS307' },
+    update: {},
+    create: {
+      code: 'CS307',
+      title: 'Operating Systems & Concurrency',
+      instructor: 'Dr. Manoj Thakur',
+      credits: 4,
+      slot: 'B',
+      room: 'B-19',
+      description: 'Process management, concurrency primitives, memory management, and file systems.',
+    },
+  });
+
+  const ee201 = await prisma.course.upsert({
+    where: { code: 'EE201' },
+    update: {},
+    create: {
+      code: 'EE201',
+      title: 'Signals and Systems',
+      instructor: 'Dr. Ankush Pathania',
+      credits: 3,
+      slot: 'C',
+      room: 'A2-201',
+      description: 'Continuous and discrete-time signals, Fourier analysis, Laplace and Z-transforms.',
+    },
+  });
+
+  // Enrollments
+  await prisma.courseEnrollment.upsert({
+    where: { userId_courseId: { userId: aravind.id, courseId: cs302.id } },
+    update: {},
+    create: { userId: aravind.id, courseId: cs302.id },
+  });
+  await prisma.courseEnrollment.upsert({
+    where: { userId_courseId: { userId: aravind.id, courseId: cs307.id } },
+    update: {},
+    create: { userId: aravind.id, courseId: cs307.id },
+  });
+  await prisma.courseEnrollment.upsert({
+    where: { userId_courseId: { userId: priya.id, courseId: cs302.id } },
+    update: {},
+    create: { userId: priya.id, courseId: cs302.id },
+  });
+  await prisma.courseEnrollment.upsert({
+    where: { userId_courseId: { userId: priya.id, courseId: ee201.id } },
+    update: {},
+    create: { userId: priya.id, courseId: ee201.id },
+  });
+
+  // Assignments
+  const existingAssignCount = await prisma.assignment.count();
+  if (existingAssignCount === 0) {
+    const due1 = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+    const due2 = new Date(Date.now() + 6 * 24 * 60 * 60 * 1000);
+
+    await prisma.assignment.create({
+      data: {
+        courseId: cs302.id,
+        moodleAssignId: 1042,
+        title: 'Assignment 3: Red-Black Trees & Treaps',
+        description: 'Implement balance rotations, node insertions, and prove O(log N) depth invariants.',
+        dueDate: due1,
+        maxPoints: 100,
+        submissionUrl: 'https://moodle.iitmandi.ac.in/mod/assign/view.php?id=1042',
+      },
+    });
+
+    await prisma.assignment.create({
+      data: {
+        courseId: cs307.id,
+        moodleAssignId: 1088,
+        title: 'Lab 4: xv6 Kernel Synchronization & Mutexes',
+        description: 'Implement sleeping locks and ticket spinlocks in xv6 kernel source tree.',
+        dueDate: due2,
+        maxPoints: 100,
+        submissionUrl: 'https://moodle.iitmandi.ac.in/mod/assign/view.php?id=1088',
+      },
+    });
+  }
+
+  // Timetable Slots
+  const existingSlotsCount = await prisma.timetableSlot.count();
+  if (existingSlotsCount === 0) {
+    const defaultSlots = [
+      { courseId: cs302.id, dayOfWeek: 'Monday', startTime: '09:00', endTime: '09:50', location: 'A1-NKN', title: 'CS302: Data Structures', slotCode: 'A' },
+      { courseId: cs307.id, dayOfWeek: 'Monday', startTime: '10:00', endTime: '10:50', location: 'B-19', title: 'CS307: Operating Systems', slotCode: 'B' },
+      { courseId: cs302.id, dayOfWeek: 'Wednesday', startTime: '09:00', endTime: '09:50', location: 'A1-NKN', title: 'CS302: Data Structures', slotCode: 'A' },
+      { courseId: cs307.id, dayOfWeek: 'Wednesday', startTime: '14:00', endTime: '17:00', location: 'SC-Lab 2', title: 'CS307: OS Lab', slotCode: 'B' },
+      { courseId: cs302.id, dayOfWeek: 'Friday', startTime: '09:00', endTime: '09:50', location: 'A1-NKN', title: 'CS302: Data Structures', slotCode: 'A' },
+      { courseId: ee201.id, dayOfWeek: 'Tuesday', startTime: '11:00', endTime: '11:50', location: 'A2-201', title: 'EE201: Signals & Systems', slotCode: 'C' },
+      { courseId: ee201.id, dayOfWeek: 'Thursday', startTime: '11:00', endTime: '11:50', location: 'A2-201', title: 'EE201: Signals & Systems', slotCode: 'C' },
+    ];
+    for (const s of defaultSlots) {
+      await prisma.timetableSlot.create({ data: s });
+    }
+  }
+
+  // Bus Trips
+  const existingBusCount = await prisma.busTrip.count();
+  if (existingBusCount === 0) {
+    const northToSouth = ['07:30', '08:15', '09:00', '10:30', '12:00', '14:15', '16:30', '18:00', '19:30', '21:00', '22:30'];
+    const southToNorth = ['08:00', '08:45', '09:45', '11:15', '13:00', '15:00', '17:15', '18:45', '20:15', '21:45', '23:00'];
+
+    for (const time of northToSouth) {
+      await prisma.busTrip.create({
+        data: {
+          routeName: 'North Campus -> South Campus',
+          fromLocation: 'North Campus (Mind Tree)',
+          toLocation: 'South Campus (Main Gate)',
+          departureTime: time,
+          busType: 'Electric Bus',
+        },
+      });
+    }
+
+    for (const time of southToNorth) {
+      await prisma.busTrip.create({
+        data: {
+          routeName: 'South Campus -> North Campus',
+          fromLocation: 'South Campus (Main Gate)',
+          toLocation: 'North Campus (Mind Tree)',
+          departureTime: time,
+          busType: 'Electric Bus',
+        },
+      });
+    }
+  }
+
+  // Mess Menu
+  const existingMessCount = await prisma.messMenu.count();
+  if (existingMessCount === 0) {
+    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    for (const d of days) {
+      await prisma.messMenu.create({
+        data: {
+          hostelName: 'Oak Mess',
+          dayOfWeek: d,
+          mealType: 'breakfast',
+          items: JSON.stringify(['Aloo Paratha / Poha', 'Boiled Eggs / Sprouts', 'Curd & Pickle', 'Tea / Coffee']),
+          dietaryNote: 'Egg & Veg counters separate',
+        },
+      });
+      await prisma.messMenu.create({
+        data: {
+          hostelName: 'Oak Mess',
+          dayOfWeek: d,
+          mealType: 'lunch',
+          items: JSON.stringify(['Rajma Madra / Chana Dal', 'Steamed Rice', 'Phulka Roti', 'Mix Veg Sabzi', 'Boondi Raita']),
+          dietaryNote: 'Himachali Madra special',
+        },
+      });
+      await prisma.messMenu.create({
+        data: {
+          hostelName: 'Oak Mess',
+          dayOfWeek: d,
+          mealType: 'snacks',
+          items: JSON.stringify(['Samosa / Veg Cutlet', 'Green Chutney', 'Special Adrak Chai']),
+        },
+      });
+      await prisma.messMenu.create({
+        data: {
+          hostelName: 'Oak Mess',
+          dayOfWeek: d,
+          mealType: 'dinner',
+          items: JSON.stringify(['Paneer Butter Masala', 'Dal Tadka', 'Jeera Rice', 'Tandoori Roti', 'Gulab Jamun']),
+          dietaryNote: 'Sweet dish served at dinner',
+        },
+      });
+    }
+  }
+
+  // Campus Services
+  const existingServiceCount = await prisma.campusService.count();
+  if (existingServiceCount === 0) {
+    const services = [
+      {
+        title: 'Kamand Health Clinic & Ambulance',
+        category: 'medical',
+        phone: '+91-1905-267011',
+        alternatePhone: '+91-98055-12345',
+        location: 'South Campus Medical Block',
+        operatingHours: '24x7 Doctor on Call',
+        description: 'Emergency trauma care, inpatient clinic, pharmacy, and all-weather 4x4 ambulance.',
+        priorityOrder: 1,
+      },
+      {
+        title: 'Security Control Room',
+        category: 'emergency',
+        phone: '+91-1905-267115',
+        location: 'South Campus Main Gate',
+        operatingHours: '24x7',
+        description: 'Campus perimeter security, gate passes, night escort service, and lost-and-found desk.',
+        priorityOrder: 2,
+      },
+      {
+        title: 'Campus Transit & Bus Dispatch',
+        category: 'transport',
+        phone: '+91-1905-267020',
+        location: 'North Campus Transport Desk',
+        operatingHours: '07:00 - 23:00',
+        description: 'Electric bus operations, town shuttle passes, and breakdown support.',
+        priorityOrder: 3,
+      },
+      {
+        title: 'Dean of Student Affairs Office',
+        category: 'admin',
+        phone: '+91-1905-267035',
+        email: 'dost@iitmandi.ac.in',
+        location: 'North Campus Admin Block',
+        operatingHours: '09:00 - 17:30 (Mon-Fri)',
+        description: 'Hostel allocations, student welfare, clubs, and extracurricular permissions.',
+        priorityOrder: 4,
+      },
+      {
+        title: 'WingNet & Campus IT Helpdesk',
+        category: 'it',
+        phone: '+91-1905-267050',
+        email: 'helpdesk@iitmandi.ac.in',
+        location: 'A1-NKN Ground Floor',
+        operatingHours: '09:00 - 18:00',
+        description: 'Hostel Wi-Fi, LDAP credentials, institute email, and Moodle LMS access.',
+        priorityOrder: 5,
+      },
+    ];
+
+    for (const s of services) {
+      await prisma.campusService.create({ data: s });
+    }
+  }
+
   console.log('Seed completed successfully.');
+
 }
 
 main()

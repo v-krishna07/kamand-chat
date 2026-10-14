@@ -49,4 +49,9 @@ export const config = {
   ollamaBaseUrl: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
   ollamaModel: process.env.OLLAMA_MODEL || 'gemma3:4b',
   aiDailyTokenBudget: parseInt(process.env.AI_DAILY_TOKEN_BUDGET || '25000', 10),
+  moodleUrl: process.env.MOODLE_URL || 'https://moodle.iitmandi.ac.in',
+  moodleToken: process.env.MOODLE_TOKEN || '',
+  moodleIcsUrl: process.env.MOODLE_ICS_URL || '',
+  campusProbeTimeoutMs: parseInt(process.env.CAMPUS_PROBE_TIMEOUT_MS || '2500', 10),
 };
+

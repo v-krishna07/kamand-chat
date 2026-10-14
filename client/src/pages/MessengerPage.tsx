@@ -5,6 +5,7 @@ import { useChatStore } from '../store/useChatStore.js';
 import { Sidebar, type PrimarySection } from '../components/Sidebar.js';
 import { ChatView } from '../components/ChatView.js';
 import { CommunityWorkspace } from '../components/CommunityWorkspace.js';
+import { CampusDashboard } from '../components/CampusDashboard.js';
 import { CallOverlay } from '../components/CallOverlay.js';
 
 interface MessengerPageProps {
@@ -51,13 +52,15 @@ export const MessengerPage: React.FC<MessengerPageProps> = ({ currentUser, onLog
         />
       </div>
 
-      {/* Main Content Area: Either Structured Community Workspace or 1:1 ChatView */}
+      {/* Main Content Area: Campus Dashboard, Structured Community Workspace or 1:1 ChatView */}
       <main
         className={`${
-          activeSection === 'communities' || activeConversation ? 'flex' : 'hidden md:flex'
+          activeSection === 'communities' || activeSection === 'campus' || activeConversation ? 'flex' : 'hidden md:flex'
         } flex-1 h-full min-w-0 bg-slate-950`}
       >
-        {activeSection === 'communities' ? (
+        {activeSection === 'campus' ? (
+          <CampusDashboard currentUser={currentUser} />
+        ) : activeSection === 'communities' ? (
           <CommunityWorkspace currentUser={currentUser} />
         ) : activeConversation ? (
           <ChatView
@@ -71,11 +74,10 @@ export const MessengerPage: React.FC<MessengerPageProps> = ({ currentUser, onLog
               <MessageSquare className="w-8 h-8" />
             </div>
             <h2 className="text-heading text-xl text-slate-100">
-              Select a conversation or open Groups
+              Select a conversation, open Groups or Campus
             </h2>
             <p className="text-sm text-slate-400 max-w-sm mt-1">
-              Real-time 1:1 messaging and structured IIT Mandi community channels with threaded
-              replies.
+              Real-time 1:1 messaging, structured IIT Mandi community channels, and campus services.
             </p>
           </div>
         )}
@@ -83,3 +85,4 @@ export const MessengerPage: React.FC<MessengerPageProps> = ({ currentUser, onLog
     </div>
   );
 };
+
