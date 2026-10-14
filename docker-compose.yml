@@ -1,0 +1,22 @@
+version: '3.9'
+services:
+  kamand-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    ports:
+      - "4000:4000"
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - DATABASE_URL=file:./dev.db
+      - SESSION_SECRET=change-this-in-production-min-32-chars-long-secret
+      - CLIENT_ORIGIN=http://localhost:5173
+      - DEMO_MODE=true
+    volumes:
+      - sqlite_data:/app/server/prisma
+      - uploads_data:/app/server/uploads
+
+volumes:
+  sqlite_data:
+  uploads_data:

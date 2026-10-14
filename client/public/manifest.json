@@ -1,0 +1,10 @@
+{
+  "name": "Kamand Chat — IIT Mandi",
+  "short_name": "Kamand Chat",
+  "description": "Fast, private, fluid messenger and campus companion for IIT Mandi",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#090d16",
+  "theme_color": "#0284c7",
+  "icons": []
+}

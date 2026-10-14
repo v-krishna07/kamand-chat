@@ -1,0 +1,29 @@
+{
+  "name": "kamand-chat",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Kamand Chat — Fast, private, fluid real-time messenger for IIT Mandi (First Commit Hackathon)",
+  "workspaces": [
+    "shared",
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace=@kamand/shared && npm run build --workspace=@kamand/server && npm run build --workspace=@kamand/client",
+    "dev": "npm run build --workspace=@kamand/shared && concurrently -n SERVER,CLIENT -c cyan,magenta \"npm run dev --workspace=@kamand/server\" \"npm run dev --workspace=@kamand/client\"",
+    "db:push": "npm run db:push --workspace=@kamand/server",
+    "db:seed": "npm run db:seed --workspace=@kamand/server",
+    "setup": "npm install && npm run build --workspace=@kamand/shared && npm run db:push && npm run db:seed",
+    "typecheck": "npm run build --workspace=@kamand/shared && npm run typecheck --workspace=@kamand/server && npm run typecheck --workspace=@kamand/client",
+    "test": "npm run build --workspace=@kamand/shared && npm run test --workspace=@kamand/server && npm run test --workspace=@kamand/client",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0",
+    "concurrently": "^9.0.1",
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
