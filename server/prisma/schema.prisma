@@ -29,8 +29,11 @@ model User {
   devices             Device[]
   memberships         Membership[]
   sentMessages        Message[]      @relation("SentMessages")
+  readReceipts        ReadReceipt[]
   contactsInitiated   Contact[]      @relation("ContactRequester")
   contactsReceived    Contact[]      @relation("ContactTarget")
+  statuses            Status[]
+  statusViews         StatusView[]
   auditLogs           AuditLog[]
 
   @@index([username])
@@ -83,16 +86,16 @@ model Contact {
 }
 
 model Conversation {
-  id          String       @id @default(uuid())
-  type        String       @default("direct") // direct | group
-  directPairKey String?    @unique            // "<smallerUserId>:<largerUserId>" for idempotent 1:1 creation
-  title       String?
-  lastSeq     Int          @default(0)
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  id            String       @id @default(uuid())
+  type          String       @default("direct") // direct | group
+  directPairKey String?      @unique            // "<smallerUserId>:<largerUserId>" for idempotent 1:1 creation
+  title         String?
+  lastSeq       Int          @default(0)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
-  memberships Membership[]
-  messages    Message[]
+  memberships   Membership[]
+  messages      Message[]
 
   @@index([updatedAt])
 }
@@ -115,28 +118,75 @@ model Membership {
 }
 
 model Message {
-  id             String       @id // Client-generated UUID v4 for idempotent sends
+  id             String        @id // Client-generated UUID v4 for idempotent sends
   conversationId String
   senderId       String
   body           String
   ciphertext     String?
   nonce          String?
-  type           String       @default("text") // text | image | voice | file | system
+  type           String        @default("text") // text | image | voice | file | system
   replyToId      String?
   seq            Int
-  status         String       @default("sent") // sent | delivered | read
+  status         String        @default("sent") // sent | delivered | read
   editedAt       DateTime?
   deletedAt      DateTime?
-  createdAt      DateTime     @default(now())
+  createdAt      DateTime      @default(now())
 
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  sender         User         @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
-  replyTo        Message?     @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
-  replies        Message[]    @relation("MessageReplies")
+  conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User          @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  replyTo        Message?      @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies        Message[]     @relation("MessageReplies")
+  readReceipts   ReadReceipt[]
 
   @@unique([conversationId, seq])
   @@index([conversationId, seq])
   @@index([senderId])
+}
+
+model ReadReceipt {
+  id        String   @id @default(uuid())
+  messageId String
+  userId    String
+  readAt    DateTime @default(now())
+
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([userId])
+  @@index([messageId])
+}
+
+model Status {
+  id             String       @id @default(uuid())
+  authorId       String
+  caption        String
+  mediaDataUrl   String?
+  bgColor        String       @default("#0284c7")
+  visibility     String       @default("contacts") // contacts | custom
+  allowedUserIds String       @default("[]")       // JSON string array of allowed user UUIDs when custom
+  createdAt      DateTime     @default(now())
+  expiresAt      DateTime
+
+  author         User         @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  views          StatusView[]
+
+  @@index([authorId, expiresAt])
+  @@index([expiresAt])
+}
+
+model StatusView {
+  id       String   @id @default(uuid())
+  statusId String
+  viewerId String
+  viewedAt DateTime @default(now())
+
+  status   Status   @relation(fields: [statusId], references: [id], onDelete: Cascade)
+  viewer   User     @relation(fields: [viewerId], references: [id], onDelete: Cascade)
+
+  @@unique([statusId, viewerId])
+  @@index([statusId])
+  @@index([viewerId])
 }
 
 model AuditLog {

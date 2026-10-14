@@ -19,7 +19,7 @@ declare global {
   }
 }
 
-export function toUserSummary(user: {
+export interface RawUserRecord {
   id: string;
   username: string;
   email: string;
@@ -27,10 +27,28 @@ export function toUserSummary(user: {
   avatarUrl: string | null;
   bio: string;
   roomCode: string | null;
+  isRoomPrivate?: boolean;
   role: string;
   lastSeenAt: Date;
   createdAt: Date;
-}): UserSummary {
+}
+
+/**
+ * Serializes a user record while enforcing room-code privacy:
+ * - If viewer is the user themselves, roomCode is always included.
+ * - If isRoomPrivate is false, roomCode is included.
+ * - If isRoomPrivate is true (default), roomCode is ONLY included when `canSeePrivateRoom` is true (i.e., accepted contact).
+ */
+export function toUserSummary(
+  user: RawUserRecord,
+  options: { isSelf?: boolean; canSeePrivateRoom?: boolean; isOnline?: boolean } = {
+    isSelf: true,
+    canSeePrivateRoom: true,
+  }
+): UserSummary {
+  const isRoomPrivate = user.isRoomPrivate ?? true;
+  const allowRoom = Boolean(options.isSelf || !isRoomPrivate || options.canSeePrivateRoom);
+
   return {
     id: user.id,
     username: user.username,
@@ -38,8 +56,10 @@ export function toUserSummary(user: {
     displayName: user.displayName,
     avatarUrl: user.avatarUrl,
     bio: user.bio,
-    roomCode: user.roomCode,
+    roomCode: allowRoom ? user.roomCode : null,
+    isRoomPrivate,
     role: (user.role as UserSummary['role']) || 'member',
+    isOnline: options.isOnline,
     lastSeenAt: user.lastSeenAt.toISOString(),
     createdAt: user.createdAt.toISOString(),
   };
@@ -73,7 +93,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       return;
     }
 
-    req.authUser = toUserSummary(session.user);
+    req.authUser = toUserSummary(session.user, { isSelf: true, canSeePrivateRoom: true });
     req.authSession = {
       id: session.id,
       csrfToken: session.csrfToken,

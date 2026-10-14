@@ -5,6 +5,7 @@ import {
   WsSendMessagePayloadSchema,
   WsMarkDeliveredPayloadSchema,
   WsMarkReadPayloadSchema,
+  WsTypingPayloadSchema,
   WsSyncResumePayloadSchema,
   type WsSendMessageAck,
   type WsSyncResumeAck,
@@ -15,10 +16,12 @@ import { config } from '../config.js';
 import { hashSessionToken } from '../security/csrf.js';
 import { wsMessageRateLimiter } from '../security/rateLimit.js';
 import { formatMessageDTO, buildConversationSummary } from '../routes/conversations.js';
+import { areUsersBlocked } from '../routes/contacts.js';
 
 interface AuthenticatedSocket extends Socket {
   userId: string;
   username: string;
+  displayName: string;
 }
 
 const onlineUsers = new Map<string, Set<string>>();
@@ -27,6 +30,11 @@ let ioInstance: SocketIOServer | null = null;
 export function isUserOnline(userId: string): boolean {
   const sockets = onlineUsers.get(userId);
   return Boolean(sockets && sockets.size > 0);
+}
+
+export function emitToUser(userId: string, event: string, payload: unknown): void {
+  if (!ioInstance) return;
+  ioInstance.to(`user:${userId}`).emit(event, payload);
 }
 
 export async function notifyConversationCreated(
@@ -49,6 +57,20 @@ export async function notifyConversationCreated(
       ioInstance.to(`user:${userId}`).emit('conversation:upsert', summary);
     }
   }
+}
+
+export function closeSocketServer(): Promise<void> {
+  return new Promise((resolve) => {
+    if (ioInstance) {
+      ioInstance.close(() => {
+        ioInstance = null;
+        onlineUsers.clear();
+        resolve();
+      });
+    } else {
+      resolve();
+    }
+  });
 }
 
 export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
@@ -89,6 +111,7 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
       const authSocket = socket as AuthenticatedSocket;
       authSocket.userId = session.user.id;
       authSocket.username = session.user.username;
+      authSocket.displayName = session.user.displayName;
       next();
     } catch {
       next(new Error('UNAUTHORIZED'));
@@ -97,7 +120,7 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
 
   io.on('connection', (rawSocket) => {
     const socket = rawSocket as AuthenticatedSocket;
-    const { userId } = socket;
+    const { userId, displayName } = socket;
 
     // Track online presence
     const userSockets = onlineUsers.get(userId) ?? new Set<string>();
@@ -129,7 +152,7 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
       }
     })();
 
-    // 1. Send Message (Idempotent via client UUID + Atomic Per-Conversation Sequence Number)
+    // 1. Send Message (Idempotent via client UUID + Atomic Per-Conversation Sequence Number + Block Enforcement)
     socket.on('message:send', async (rawPayload: unknown, ack?: (res: WsSendMessageAck) => void) => {
       try {
         const rateCheck = wsMessageRateLimiter.consume(userId);
@@ -154,12 +177,21 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
 
         const { id, conversationId, body, ciphertext, nonce, type, replyToId } = parsed.data;
 
-        const membership = await prisma.membership.findUnique({
-          where: {
-            conversationId_userId: { conversationId, userId },
-          },
+        const convWithMembers = await prisma.conversation.findUnique({
+          where: { id: conversationId },
+          include: { memberships: true },
         });
 
+        if (!convWithMembers) {
+          ack?.({
+            ok: false,
+            code: 'NOT_FOUND',
+            error: 'Conversation not found.',
+          });
+          return;
+        }
+
+        const membership = convWithMembers.memberships.find((m) => m.userId === userId);
         if (!membership) {
           ack?.({
             ok: false,
@@ -167,6 +199,19 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
             error: 'You are not a member of this conversation.',
           });
           return;
+        }
+
+        // Enforce block check on direct conversations
+        if (convWithMembers.type === 'direct') {
+          const peerMember = convWithMembers.memberships.find((m) => m.userId !== userId);
+          if (peerMember && (await areUsersBlocked(userId, peerMember.userId))) {
+            ack?.({
+              ok: false,
+              code: 'FORBIDDEN',
+              error: 'Cannot send messages in a blocked conversation.',
+            });
+            return;
+          }
         }
 
         // Idempotency check: if client message UUID already exists, return it without duplicating
@@ -262,9 +307,15 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
 
         const dto = formatMessageDTO(createdMessage);
 
-        //Ensure socket is joined to conversation room and broadcast in real time
         socket.join(`conv:${conversationId}`);
         io.to(`conv:${conversationId}`).emit('message:new', dto);
+        // Clear typing indicator on send
+        socket.to(`conv:${conversationId}`).emit('typing:update', {
+          conversationId,
+          userId,
+          displayName,
+          isTyping: false,
+        });
 
         ack?.({
           ok: true,
@@ -281,7 +332,39 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
       }
     });
 
-    // 2. Delivery Receipt Acknowledgement
+    // 2. Typing Indicator Events (`typing:start` / `typing:stop` / `typing:set`)
+    socket.on('typing:set', async (rawPayload: unknown) => {
+      try {
+        const parsed = WsTypingPayloadSchema.safeParse(rawPayload);
+        if (!parsed.success) return;
+
+        const { conversationId, isTyping } = parsed.data;
+        const conv = await prisma.conversation.findUnique({
+          where: { id: conversationId },
+          include: { memberships: true },
+        });
+        if (!conv) return;
+
+        const isMember = conv.memberships.some((m) => m.userId === userId);
+        if (!isMember) return;
+
+        if (conv.type === 'direct') {
+          const peer = conv.memberships.find((m) => m.userId !== userId);
+          if (peer && (await areUsersBlocked(userId, peer.userId))) return;
+        }
+
+        socket.to(`conv:${conversationId}`).emit('typing:update', {
+          conversationId,
+          userId,
+          displayName,
+          isTyping,
+        });
+      } catch {
+        // Ignore transient typing indicator errors
+      }
+    });
+
+    // 3. Delivery Receipt Acknowledgement
     socket.on('message:delivered', async (rawPayload: unknown) => {
       try {
         const parsed = WsMarkDeliveredPayloadSchema.safeParse(rawPayload);
@@ -321,7 +404,7 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
       }
     });
 
-    // 3. Read Receipt Acknowledgement
+    // 4. Read Receipt Acknowledgement + ReadReceipt Persistence
     socket.on('message:read', async (rawPayload: unknown) => {
       try {
         const parsed = WsMarkReadPayloadSchema.safeParse(rawPayload);
@@ -343,15 +426,35 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
           });
         }
 
-        await prisma.message.updateMany({
+        const unreadMessages = await prisma.message.findMany({
           where: {
             conversationId,
             senderId: { not: userId },
             seq: { lte: seq },
-            status: { in: ['sent', 'delivered'] },
           },
-          data: { status: 'read' },
+          select: { id: true, status: true },
         });
+
+        if (unreadMessages.length > 0) {
+          await prisma.message.updateMany({
+            where: {
+              id: { in: unreadMessages.map((m) => m.id) },
+              status: { in: ['sent', 'delivered'] },
+            },
+            data: { status: 'read' },
+          });
+
+          // Upsert individual ReadReceipt records
+          for (const m of unreadMessages) {
+            await prisma.readReceipt
+              .upsert({
+                where: { messageId_userId: { messageId: m.id, userId } },
+                update: {},
+                create: { messageId: m.id, userId },
+              })
+              .catch(() => undefined);
+          }
+        }
 
         io.to(`conv:${conversationId}`).emit('conversation:read', {
           conversationId,
@@ -363,7 +466,7 @@ export function attachSocketServer(httpServer: HttpServer): SocketIOServer {
       }
     });
 
-    // 4. Reconnect Catch-Up (`sync:resume` from last-seen sequence number per conversation)
+    // 5. Reconnect Catch-Up (`sync:resume` from last-seen sequence number per conversation)
     socket.on('sync:resume', async (rawPayload: unknown, ack?: (res: WsSyncResumeAck) => void) => {
       try {
         const parsed = WsSyncResumePayloadSchema.safeParse(rawPayload);

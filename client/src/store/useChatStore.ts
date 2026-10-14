@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { ConversationSummary, MessageDTO, UserSummary } from '@kamand/shared';
 import { apiFetch } from '../lib/api.js';
 import { socketManager } from '../lib/socket.js';
+import { useSocialStore } from './useSocialStore.js';
 
 interface PaginationMeta {
   nextCursor: number | null;
@@ -16,6 +17,7 @@ interface ChatState {
   paginationByConv: Record<string, PaginationMeta>;
   draftsByConv: Record<string, string>;
   replyTargetByConv: Record<string, MessageDTO | null>;
+  typingUsersByConv: Record<string, Record<string, string>>; // convId -> { userId: displayName }
   connectionState: 'connected' | 'connecting' | 'offline';
   isLoadingConversations: boolean;
 
@@ -28,14 +30,10 @@ interface ChatState {
   retryMessage: (conversationId: string, messageId: string, currentUser: UserSummary) => Promise<void>;
   setDraft: (conversationId: string, text: string) => void;
   setReplyTarget: (conversationId: string, target: MessageDTO | null) => void;
+  notifyTyping: (conversationId: string, isTyping: boolean) => void;
   reset: () => void;
 }
 
-/**
- * Merges incoming messages with existing messages in a conversation:
- * - Deduplicates by client UUID (`id`)
- * - Orders deterministically by server `seq` (with optimistic `sending`/`failed` items at the tail)
- */
 export function mergeConversationMessages(
   existing: MessageDTO[],
   incoming: MessageDTO[]
@@ -60,6 +58,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   paginationByConv: {},
   draftsByConv: {},
   replyTargetByConv: {},
+  typingUsersByConv: {},
   connectionState: 'offline',
   isLoadingConversations: false,
 
@@ -71,6 +70,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       paginationByConv: {},
       draftsByConv: {},
       replyTargetByConv: {},
+      typingUsersByConv: {},
       connectionState: 'offline',
     }),
 
@@ -83,6 +83,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((s) => ({
       replyTargetByConv: { ...s.replyTargetByConv, [conversationId]: target },
     })),
+
+  notifyTyping: (conversationId, isTyping) => {
+    socketManager.emitTyping(conversationId, isTyping);
+  },
 
   initRealtime: (currentUser) => {
     const unsubState = socketManager.onStateChange((connectionState) => {
@@ -202,6 +206,37 @@ export const useChatStore = create<ChatState>((set, get) => ({
             ),
           })),
         }));
+      },
+
+      onTypingUpdate: ({ conversationId, userId, displayName, isTyping }) => {
+        if (userId === currentUser.id) return;
+        set((prev) => {
+          const currentMap = { ...(prev.typingUsersByConv[conversationId] ?? {}) };
+          if (isTyping) {
+            currentMap[userId] = displayName;
+          } else {
+            delete currentMap[userId];
+          }
+          return {
+            typingUsersByConv: {
+              ...prev.typingUsersByConv,
+              [conversationId]: currentMap,
+            },
+          };
+        });
+      },
+
+      onContactEvent: () => {
+        void useSocialStore.getState().loadContacts();
+        void get().loadConversations();
+      },
+
+      onStatusNew: (status) => {
+        useSocialStore.getState().handleRealtimeStatusNew(status);
+      },
+
+      onStatusViewed: (ev) => {
+        useSocialStore.getState().handleRealtimeStatusViewed(ev);
       },
 
       onSyncResume: (missedByConv) => {
@@ -383,14 +418,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
             body: replyTarget.body.slice(0, 120),
           }
         : null,
-      seq: maxSeq + 100_000, // Temporary high sequence number until server assigns authoritative seq
+      seq: maxSeq + 100_000,
       status: 'sending',
       editedAt: null,
       deletedAt: null,
       createdAt: new Date().toISOString(),
     };
 
-    // Optimistic insert + clear draft and reply bar immediately (zero input latency)
     set((prev) => ({
       messagesByConv: {
         ...prev.messagesByConv,
@@ -456,7 +490,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }));
 
     const ack = await socketManager.sendMessage({
-      id: target.id, // Preserves original UUID for idempotency on the server
+      id: target.id,
       conversationId,
       body: target.body,
       type: target.type,

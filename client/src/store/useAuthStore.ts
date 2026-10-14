@@ -1,21 +1,24 @@
 import { create } from 'zustand';
-import type { UserSummary, RegisterInput, LoginInput } from '@kamand/shared';
+import type { UserSummary, RegisterInput, LoginInput, UpdateProfileInput } from '@kamand/shared';
 import { apiFetch, setCsrfToken } from '../lib/api.js';
 import { socketManager } from '../lib/socket.js';
 
 interface AuthState {
   user: UserSummary | null;
+  qrPayload: string | null;
   isLoading: boolean;
   error: string | null;
   hydrateSession: () => Promise<void>;
   login: (input: LoginInput) => Promise<void>;
   register: (input: RegisterInput) => Promise<void>;
+  updateProfile: (input: UpdateProfileInput) => Promise<void>;
   logout: () => Promise<void>;
   clearError: () => void;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
+  qrPayload: null,
   isLoading: true,
   error: null,
 
@@ -26,10 +29,14 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const res = await apiFetch<{ user: UserSummary; csrfToken: string }>('/api/auth/me');
       setCsrfToken(res.csrfToken);
-      set({ user: res.user, isLoading: false });
+      set({
+        user: res.user,
+        qrPayload: `kamand://contact/${res.user.id}:${res.user.username}`,
+        isLoading: false,
+      });
     } catch {
       setCsrfToken(null);
-      set({ user: null, isLoading: false });
+      set({ user: null, qrPayload: null, isLoading: false });
     }
   },
 
@@ -41,7 +48,11 @@ export const useAuthStore = create<AuthState>((set) => ({
         body: JSON.stringify(input),
       });
       setCsrfToken(res.csrfToken);
-      set({ user: res.user, error: null });
+      set({
+        user: res.user,
+        qrPayload: `kamand://contact/${res.user.id}:${res.user.username}`,
+        error: null,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unable to sign in';
       set({ error: message });
@@ -57,12 +68,27 @@ export const useAuthStore = create<AuthState>((set) => ({
         body: JSON.stringify(input),
       });
       setCsrfToken(res.csrfToken);
-      set({ user: res.user, error: null });
+      set({
+        user: res.user,
+        qrPayload: `kamand://contact/${res.user.id}:${res.user.username}`,
+        error: null,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unable to create account';
       set({ error: message });
       throw err;
     }
+  },
+
+  updateProfile: async (input) => {
+    const res = await apiFetch<{ user: UserSummary }>('/api/profile/me', {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    });
+    set({
+      user: res.user,
+      qrPayload: `kamand://contact/${res.user.id}:${res.user.username}`,
+    });
   },
 
   logout: async () => {
@@ -71,7 +97,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     } finally {
       socketManager.disconnect();
       setCsrfToken(null);
-      set({ user: null, error: null });
+      set({ user: null, qrPayload: null, error: null });
     }
   },
 }));

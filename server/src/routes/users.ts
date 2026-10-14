@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../db.js';
 import { requireAuth, toUserSummary } from '../middleware/auth.js';
 import { isUserOnline } from '../ws/socketServer.js';
+import { getAcceptedContactIds } from './contacts.js';
 
 export const usersRouter = Router();
 
@@ -10,9 +11,26 @@ usersRouter.get('/search', requireAuth, async (req, res, next) => {
     const rawQuery = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     const currentUserId = req.authUser!.id;
 
+    // Exclude users who blocked currentUser or whom currentUser blocked
+    const blocks = await prisma.contact.findMany({
+      where: {
+        status: 'blocked',
+        OR: [{ requesterId: currentUserId }, { targetId: currentUserId }],
+      },
+      select: { requesterId: true, targetId: true },
+    });
+
+    const excludedIds = new Set<string>([currentUserId]);
+    for (const b of blocks) {
+      excludedIds.add(b.requesterId);
+      excludedIds.add(b.targetId);
+    }
+
+    const acceptedContactIds = await getAcceptedContactIds(currentUserId);
+
     const users = await prisma.user.findMany({
       where: {
-        id: { not: currentUserId },
+        id: { notIn: Array.from(excludedIds) },
         isSuspended: false,
         ...(rawQuery.length > 0
           ? {
@@ -29,10 +47,14 @@ usersRouter.get('/search', requireAuth, async (req, res, next) => {
     });
 
     res.status(200).json({
-      users: users.map((u) => ({
-        ...toUserSummary(u),
-        isOnline: isUserOnline(u.id),
-      })),
+      users: users.map((u) => {
+        const isContact = acceptedContactIds.has(u.id);
+        return toUserSummary(u, {
+          isSelf: false,
+          canSeePrivateRoom: isContact,
+          isOnline: isUserOnline(u.id),
+        });
+      }),
     });
   } catch (err) {
     next(err);

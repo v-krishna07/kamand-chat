@@ -9,6 +9,7 @@ import { prisma } from '../db.js';
 import { requireAuth, toUserSummary } from '../middleware/auth.js';
 import { csrfProtection } from '../security/csrf.js';
 import { isUserOnline, notifyConversationCreated } from '../ws/socketServer.js';
+import { areUsersBlocked, getAcceptedContactIds } from './contacts.js';
 
 export const conversationsRouter = Router();
 
@@ -100,6 +101,16 @@ export async function buildConversationSummary(
   const viewerMembership = conv.memberships.find((m) => m.userId === viewerUserId);
   if (!viewerMembership) return null;
 
+  const acceptedContactIds = await getAcceptedContactIds(viewerUserId);
+  let isBlocked = false;
+
+  if (conv.type === 'direct') {
+    const peer = conv.memberships.find((m) => m.userId !== viewerUserId);
+    if (peer) {
+      isBlocked = await areUsersBlocked(viewerUserId, peer.userId);
+    }
+  }
+
   const unreadCount = Math.max(0, conv.lastSeq - viewerMembership.lastReadSeq);
   const lastMsg = conv.messages[0] ? formatMessageDTO(conv.messages[0]) : null;
 
@@ -111,11 +122,17 @@ export async function buildConversationSummary(
     unreadCount,
     lastReadSeq: viewerMembership.lastReadSeq,
     updatedAt: conv.updatedAt.toISOString(),
-    participants: conv.memberships.map((m) => ({
-      ...toUserSummary(m.user),
-      isOnline: isUserOnline(m.user.id),
-    })),
+    participants: conv.memberships.map((m) => {
+      const isSelf = m.user.id === viewerUserId;
+      const isContact = isSelf || acceptedContactIds.has(m.user.id);
+      return toUserSummary(m.user, {
+        isSelf,
+        canSeePrivateRoom: isContact,
+        isOnline: !isBlocked && isUserOnline(m.user.id),
+      });
+    }),
     lastMessage: lastMsg,
+    isBlocked,
   };
 }
 
@@ -157,6 +174,11 @@ conversationsRouter.post('/direct', requireAuth, csrfProtection, async (req, res
 
     if (currentUserId === targetUserId) {
       res.status(400).json({ error: 'Cannot start a direct conversation with yourself.' });
+      return;
+    }
+
+    if (await areUsersBlocked(currentUserId, targetUserId)) {
+      res.status(403).json({ error: 'Cannot start a conversation with a blocked user.' });
       return;
     }
 

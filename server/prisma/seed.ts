@@ -4,7 +4,7 @@ import { hashPassword } from '../src/security/password.js';
 import { config } from '../src/config.js';
 
 async function main() {
-  console.log('Seeding Kamand Chat database...');
+  console.log('Seeding Kamand Chat database (Phase 1 + Phase 2 Social Layer)...');
 
   const commonPasswordHash = await hashPassword(config.adminPassword);
 
@@ -18,6 +18,7 @@ async function main() {
       passwordHash: commonPasswordHash,
       role: 'super_admin',
       roomCode: 'D-01',
+      isRoomPrivate: true,
       bio: 'System Administrator · IIT Mandi',
     },
   });
@@ -32,6 +33,7 @@ async function main() {
       passwordHash: commonPasswordHash,
       role: 'member',
       roomCode: 'B-19',
+      isRoomPrivate: true,
       bio: 'CSE ’27 · Kamand Prompt · Building fluid interfaces',
     },
   });
@@ -46,6 +48,7 @@ async function main() {
       passwordHash: commonPasswordHash,
       role: 'member',
       roomCode: 'A-12',
+      isRoomPrivate: true,
       bio: 'DSE ’27 · Robotics Club · South Campus',
     },
   });
@@ -60,9 +63,59 @@ async function main() {
       passwordHash: commonPasswordHash,
       role: 'moderator',
       roomCode: 'C-10',
+      isRoomPrivate: true,
       bio: 'EE ’26 · Hostel Secretary · North Campus',
     },
   });
+
+  // Seed accepted contact between Aravind and Priya, and incoming pending request from Rohan to Aravind
+  await prisma.contact.upsert({
+    where: {
+      requesterId_targetId: { requesterId: aravind.id, targetId: priya.id },
+    },
+    update: { status: 'accepted' },
+    create: {
+      requesterId: aravind.id,
+      targetId: priya.id,
+      status: 'accepted',
+    },
+  });
+
+  await prisma.contact.upsert({
+    where: {
+      requesterId_targetId: { requesterId: rohan.id, targetId: aravind.id },
+    },
+    update: {},
+    create: {
+      requesterId: rohan.id,
+      targetId: aravind.id,
+      status: 'pending',
+    },
+  });
+
+  // Seed 24h expiring Statuses
+  const existingStatuses = await prisma.status.count({ where: { authorId: priya.id } });
+  if (existingStatuses === 0) {
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await prisma.status.create({
+      data: {
+        authorId: priya.id,
+        caption: 'Late night hacking at Kamand Prompt First Commit! Coffee at Nescafé near A-12 ☕',
+        bgColor: '#0284c7',
+        visibility: 'contacts',
+        expiresAt,
+      },
+    });
+    await prisma.status.create({
+      data: {
+        authorId: aravind.id,
+        caption: 'Spring physics + WebSockets running at 60fps 🚀 Meet at B-19!',
+        bgColor: '#4f46e5',
+        visibility: 'contacts',
+        expiresAt,
+      },
+    });
+  }
 
   // Create a seeded 1:1 conversation between Aravind and Priya
   const [firstId, secondId] = [aravind.id, priya.id].sort();

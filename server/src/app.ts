@@ -6,6 +6,9 @@ import { config } from './config.js';
 import { authRouter } from './routes/auth.js';
 import { usersRouter } from './routes/users.js';
 import { conversationsRouter } from './routes/conversations.js';
+import { contactsRouter } from './routes/contacts.js';
+import { profileRouter } from './routes/profile.js';
+import { statusesRouter } from './routes/statuses.js';
 import { createRateLimitMiddleware, apiRateLimiter } from './security/rateLimit.js';
 
 export function createApp() {
@@ -20,7 +23,7 @@ export function createApp() {
           defaultSrc: ["'self'"],
           scriptSrc: ["'self'"],
           styleSrc: ["'self'", "'unsafe-inline'"],
-          imgSrc: ["'self'", 'data:', 'blob:'],
+          imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
           connectSrc: ["'self'", config.clientOrigin, 'ws:', 'wss:'],
         },
       },
@@ -38,7 +41,7 @@ export function createApp() {
   );
 
   app.use(cookieParser());
-  app.use(express.json({ limit: '256kb' }));
+  app.use(express.json({ limit: '2mb' }));
   app.use(createRateLimitMiddleware(apiRateLimiter));
 
   app.get('/api/health', (_req, res) => {
@@ -51,6 +54,9 @@ export function createApp() {
 
   app.use('/api/auth', authRouter);
   app.use('/api/users', usersRouter);
+  app.use('/api/profile', profileRouter);
+  app.use('/api/contacts', contactsRouter);
+  app.use('/api/statuses', statusesRouter);
   app.use('/api/conversations', conversationsRouter);
 
   app.use((_req, res) => {

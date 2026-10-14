@@ -6,6 +6,10 @@ import type {
   WsSendMessagePayload,
   WsSendMessageAck,
   WsSyncResumeAck,
+  WsTypingUpdateEvent,
+  ContactDTO,
+  StatusDTO,
+  StatusViewDTO,
 } from '@kamand/shared';
 
 class SocketManager {
@@ -41,6 +45,10 @@ class SocketManager {
     onConversationRead: (ev: { conversationId: string; readerId: string; upToSeq: number }) => void;
     onConversationUpsert: (conv: ConversationSummary) => void;
     onPresenceUpdate: (ev: { userId: string; isOnline: boolean; lastSeenAt: string }) => void;
+    onTypingUpdate: (ev: WsTypingUpdateEvent) => void;
+    onContactEvent?: () => void;
+    onStatusNew?: (status: StatusDTO) => void;
+    onStatusViewed?: (ev: { statusId: string; view: StatusViewDTO }) => void;
     getCursors: () => Record<string, number>;
     onSyncResume: (missed: Record<string, MessageDTO[]>) => void;
     onFlushPending: () => void;
@@ -54,7 +62,7 @@ class SocketManager {
     const socket = io(getApiBaseUrl(), {
       withCredentials: true,
       transports: ['websocket', 'polling'],
-      reconnection: false, // Managed manually for explicit exponential backoff + full jitter
+      reconnection: false,
     });
 
     this.socket = socket;
@@ -63,7 +71,6 @@ class SocketManager {
       this.reconnectAttempts = 0;
       this.setState('connected');
 
-      // Immediately resume from last-seen sequence number per conversation
       const cursors = handlers.getCursors();
       socket.emit('sync:resume', { cursors }, (ack: WsSyncResumeAck) => {
         if (ack?.ok && ack.missedMessages) {
@@ -93,6 +100,34 @@ class SocketManager {
       handlers.onPresenceUpdate(ev);
     });
 
+    socket.on('typing:update', (ev: WsTypingUpdateEvent) => {
+      handlers.onTypingUpdate(ev);
+    });
+
+    socket.on('contact:request', (_dto: ContactDTO) => {
+      handlers.onContactEvent?.();
+    });
+
+    socket.on('contact:accepted', () => {
+      handlers.onContactEvent?.();
+    });
+
+    socket.on('contact:declined', () => {
+      handlers.onContactEvent?.();
+    });
+
+    socket.on('contact:updated', () => {
+      handlers.onContactEvent?.();
+    });
+
+    socket.on('status:new', (status: StatusDTO) => {
+      handlers.onStatusNew?.(status);
+    });
+
+    socket.on('status:viewed', (ev: { statusId: string; view: StatusViewDTO }) => {
+      handlers.onStatusViewed?.(ev);
+    });
+
     socket.on('disconnect', () => {
       this.setState('offline');
       this.scheduleReconnect();
@@ -107,7 +142,6 @@ class SocketManager {
   private scheduleReconnect(): void {
     if (this.reconnectTimer !== null || !this.socket) return;
     this.reconnectAttempts += 1;
-    // Exponential backoff with full jitter: random between 300ms and min(15000ms, 500 * 2^attempt)
     const maxDelay = Math.min(15_000, 500 * Math.pow(2, Math.min(this.reconnectAttempts, 6)));
     const delayWithJitter = Math.floor(250 + Math.random() * maxDelay);
 
@@ -152,6 +186,10 @@ class SocketManager {
 
   public emitRead(conversationId: string, seq: number): void {
     this.socket?.emit('message:read', { conversationId, seq });
+  }
+
+  public emitTyping(conversationId: string, isTyping: boolean): void {
+    this.socket?.emit('typing:set', { conversationId, isTyping });
   }
 
   public disconnect(): void {
